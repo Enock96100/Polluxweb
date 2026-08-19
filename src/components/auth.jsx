@@ -1,10 +1,24 @@
-
 import axios from "axios";
 
 const API_BASE = "https://youapi.youneed.app/pollux/dev/api";
 
+const parseJson = (value) => {
+  if (!value || value === "undefined" || value === "null") {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
 
 export const fetchProfile = async () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
   const token = localStorage.getItem("token");
 
   if (!token) {
@@ -14,7 +28,7 @@ export const fetchProfile = async () => {
 
   try {
     const response = await axios.get(
-      `${API_BASE}/admin-agents/user`,
+      `${API_BASE}/main-companies/by-owner-id`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -23,59 +37,56 @@ export const fetchProfile = async () => {
       }
     );
 
-    console.log("PROFILE RESPONSE:", response.data);
+    const company = response?.data?.data || null;
 
-    const user = response?.data?.data || null;
-
-    if (!user) {
+    if (!company) {
       console.warn("Profil vide reçu");
       return null;
     }
 
-    // on stocke le user complet (companyId inclus)
-    localStorage.setItem("user", JSON.stringify(user));
+    const owner = company.owner || null;
 
-    return user;
+    localStorage.setItem("company", JSON.stringify(company));
+    localStorage.setItem("user", JSON.stringify(owner));
 
+    return {
+      company,
+      user: owner,
+    };
   } catch (error) {
     console.error(
       "Erreur fetch profile:",
       error?.response?.data || error.message
     );
 
-    // Si token invalide → on nettoie
-    if (error?.response?.status === 401) {
+    if (error?.response?.status === 401 || error?.response?.status === 403) {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.removeItem("company");
     }
 
     return null;
   }
 };
 
-/* ================= GET AUTH DATA ================= */
-
 export const getAuthData = () => {
-  const token = localStorage.getItem("token");
-
-  let user = null;
-
-  try {
-    const storedUser = localStorage.getItem("user");
-
-    if (storedUser && storedUser !== "undefined") {
-      user = JSON.parse(storedUser);
-    }
-  } catch (error) {
-    console.error("Erreur parsing user:", error);
-    user = null;
+  if (typeof window === "undefined") {
+    return {
+      token: null,
+      user: null,
+      company: null,
+      companyId: null,
+    };
   }
 
-  const companyId = user?.companyId || null;
+  const token = localStorage.getItem("token");
+  const user = parseJson(localStorage.getItem("user"));
+  const company = parseJson(localStorage.getItem("company"));
 
   return {
     token,
     user,
-    companyId,
+    company,
+    companyId: company?.id || null,
   };
 };

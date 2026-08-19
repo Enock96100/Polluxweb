@@ -15,9 +15,16 @@ import {
   Pencil,
   Trash2,
   Upload,
+  Package,
+  Unlock,
+  Radio,
   CheckCircle2,
   XCircle,
   Loader2,
+  CreditCard,
+  Tv,
+  Landmark,
+  ArrowLeft,
 } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
@@ -38,42 +45,26 @@ const MERCHANT_TOGGLE_STATUS_API = (id) => `https://youapi.youneed.app/pollux/de
 
 /**
  * Endpoints de modification (édition) d'un partenaire existant.
+ * Le PUT réutilise le même formulaire que la création, avec les
+ * champs pré-remplis. Les documents / photo sont optionnels : ils
+ * ne sont envoyés que si l'utilisateur en sélectionne de nouveaux.
  */
 const DIST_UPDATE_API     = (id) => `https://youapi.youneed.app/pollux/dev/api/distributors/${id}`
 const MERCHANT_UPDATE_API = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}`
 
 /**
- * Endpoints "Services" : liste des services de l'entreprise (par companyId),
- * puis assignation multiple à un distributeur ou à un commerçant.
- * ✅ CONFIRMÉ : GET  /products/services/company/:companyId
- * ✅ CONFIRMÉ : POST /products/distributor/assign-multiple-services  { distributorId, serviceIds: [...] }
- * ✅ CONFIRMÉ : POST /products/merchant/assign-multiple-services     { merchantId, serviceIds: [...] }
+ * Endpoint de réapprovisionnement d'un partenaire (distributeur ou commerçant).
+ * Le POST reçoit le service concerné, la sélection (banque/formule ou
+ * décodeurs) ainsi que la liste des produits avec leur quantité.
  */
-const SERVICES_LIST_API              = "https://youapi.youneed.app/pollux/dev/api/products/services/company"
-const ASSIGN_SERVICE_DISTRIBUTOR_API = "https://youapi.youneed.app/pollux/dev/api/products/distributor/assign-multiple-services"
-const ASSIGN_SERVICE_MERCHANT_API    = "https://youapi.youneed.app/pollux/dev/api/products/merchant/assign-multiple-services"
-
-/**
- * Endpoint "Services assignés à un partenaire" : liste (GET) et retrait (DELETE)
- * d'un service déjà assigné à un distributeur ou un commerçant.
- * ✅ CONFIRMÉ : GET    /products/partners/services/:partnerId?isMerchant=true|false
- * ✅ CONFIRMÉ : DELETE /products/partners/services/:serviceAssignmentId?isMerchant=true|false
- * isMerchant = true pour un commerçant, false pour un distributeur.
- */
-const PARTNER_SERVICES_API = (id) => `https://youapi.youneed.app/pollux/dev/api/products/partners/services/${id}`
-
-/* ══════════════════════════════════════════════
-   ℹ️ Les actions "Réapprovisionner", "Libérer stock" et "Assigner
-   parabole" ont été déplacées dans les pages de détail
-   (DetailDistributeur.jsx / DetailCommercant.jsx), directement dans la
-   section Stock, sur chaque sous-onglet (Carte / Décodeurs / Paraboles).
-   Elles ne sont donc plus présentes dans le menu d'actions de cette liste.
-   ══════════════════════════════════════════════ */
+const RESTOCK_API = (id) => `https://youapi.youneed.app/pollux/dev/api/partners/${id}/restock`
 
 /* ══════════════════════════════════════════════
    HELPERS DE FORMATAGE
    ══════════════════════════════════════════════ */
 
+/** "DUPONT SARL" → "DUPONT SARL" (déjà géré par toUpperCase dans le JSX) */
+/** "cOTONOU" → "Cotonou" */
 function capitalizeCity(str) {
   if (!str || str === "-") return str
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
@@ -116,7 +107,7 @@ function NotificationBanner({ notif, onDismiss }) {
   const isSuccess = notif.type === "success"
   return (
     <div
-      className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition-all
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium shadow-sm transition-all
         ${isSuccess
           ? "bg-green-50 border border-green-200 text-green-700"
           : "bg-red-50 border border-red-200 text-red-700"
@@ -126,8 +117,8 @@ function NotificationBanner({ notif, onDismiss }) {
         ? <CheckCircle size={18} className="shrink-0 text-green-500" />
         : <AlertCircle size={18} className="shrink-0 text-red-500" />
       }
-      <span className="flex-1 break-words">{notif.message}</span>
-      <button onClick={onDismiss} className="ml-2 hover:opacity-70 transition-opacity flex-shrink-0">
+      <span className="flex-1">{notif.message}</span>
+      <button onClick={onDismiss} className="ml-2 hover:opacity-70 transition-opacity">
         <X size={16} />
       </button>
     </div>
@@ -175,35 +166,6 @@ function normalizeMerchant(m) {
   }
 }
 
-/** Normalise un service renvoyé par l'API en item affichable dans une liste à cocher. */
-function normalizeService(s) {
-  return {
-    id:          s.id,
-    name:        s.name || s.label || s.title || "Service",
-    description: s.description || null,
-    _raw: s,
-  }
-}
-
-/**
- * Normalise un service déjà assigné à un partenaire (réponse de
- * GET /products/partners/services/:partnerId). L'id conservé ici est
- * celui de l'assignation elle-même (et non celui du service générique),
- * car c'est cet id qui doit être transmis au DELETE pour retirer le service.
- */
-function normalizeAssignedService(s) {
-  const service = s.service || s.productService || {}
-  return {
-    id:          s.id,
-    name:        service.name || s.name || s.label || "Service",
-    description: service.description || s.description || null,
-    since:       s.createdAt
-      ? new Date(s.createdAt).toLocaleDateString("fr-FR")
-      : (s.assignedAt ? new Date(s.assignedAt).toLocaleDateString("fr-FR") : null),
-    _raw: s,
-  }
-}
-
 /* ══════════════════════════════════════════════
    PHONE INPUT
    ══════════════════════════════════════════════ */
@@ -222,8 +184,8 @@ function PhoneInput({ value, onChange, placeholder = "Numéro de téléphone" })
   ]
 
   return (
-    <div className="flex flex-col sm:flex-row gap-0 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 focus-within:border-[#1EA4DC] transition-colors">
-      <div className="flex items-center gap-1.5 px-3 py-3 sm:border-r border-b sm:border-b-0 border-gray-200 shrink-0 bg-gray-100">
+    <div className="flex gap-0 rounded-xl overflow-hidden border border-gray-200 bg-gray-100 focus-within:border-[#1EA4DC] transition-colors">
+      <div className="flex items-center gap-1.5 px-3 py-3 border-r border-gray-200 shrink-0 bg-gray-100">
         <span className="text-base leading-none">
           {countries.find(c => c.code === countryCode)?.flag || "🇧🇯"}
         </span>
@@ -245,7 +207,7 @@ function PhoneInput({ value, onChange, placeholder = "Numéro de téléphone" })
         placeholder={placeholder}
         value={value}
         onChange={onChange}
-        className="flex-1 bg-gray-100 px-4 py-3 text-sm outline-none text-gray-700 placeholder-gray-400 w-full"
+        className="flex-1 bg-gray-100 px-4 py-3 text-sm outline-none text-gray-700 placeholder-gray-400"
       />
     </div>
   )
@@ -490,25 +452,25 @@ function AddPartnerModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600">
           <X size={20} />
         </button>
 
-        <h2 className="text-lg sm:text-xl font-semibold mb-5 pr-8">Ajouter un partenaire</h2>
+        <h2 className="text-xl font-semibold mb-5">Ajouter un partenaire</h2>
 
         {localError && (
           <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
             <AlertCircle size={16} className="shrink-0" />
-            <span className="flex-1 break-words">{localError}</span>
+            <span className="flex-1">{localError}</span>
             <button onClick={() => setLocalError(null)} className="ml-auto hover:opacity-70 transition-opacity">
               <X size={14} />
             </button>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-4 sm:gap-6 px-4 py-3 rounded-xl border border-gray-200 bg-white mb-5">
+        <div className="flex gap-6 px-4 py-3 rounded-xl border border-gray-200 bg-white mb-5">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="radio"
@@ -572,7 +534,7 @@ function AddPartnerModal({ onClose, onCreated }) {
             </FormField>
 
             <SectionTitle title="Informations personnelles" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <FormField label="Prénom" required>
                 <FormInput
                   placeholder="Prénom"
@@ -638,7 +600,7 @@ function AddPartnerModal({ onClose, onCreated }) {
         {partnerType === "commercant" && (
           <div className="space-y-4">
             <SectionTitle title="Informations personnelles" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <FormField label="Prénom" required>
                 <FormInput
                   placeholder="Prénom"
@@ -711,6 +673,12 @@ function AddPartnerModal({ onClose, onCreated }) {
 
 /* ══════════════════════════════════════════════
    EDIT PARTNER MODAL
+   Réutilise les mêmes champs que le formulaire de création,
+   pré-remplis avec les données existantes du partenaire.
+   Envoie un PUT vers /distributors/:id ou /merchants/:id.
+   Les documents / photo sont optionnels : seuls les nouveaux
+   fichiers sélectionnés sont envoyés (ne remplace pas les
+   documents existants si on ne touche à rien).
    ══════════════════════════════════════════════ */
 function initDistFormFromItem(item) {
   const raw = item?._raw || {}
@@ -805,6 +773,7 @@ function EditPartnerModal({ partnerType, item, onClose, onUpdated }) {
         formData.append("phone",              cleanPhone)
         formData.append("country",            distForm.country.trim())
 
+        // Documents optionnels : envoyés uniquement si remplacés
         if (distForm.rccmDocument instanceof File) formData.append("rccm",  distForm.rccmDocument)
         if (distForm.ifuDocument  instanceof File) formData.append("ifu",   distForm.ifuDocument)
         if (distForm.photo        instanceof File) formData.append("photo", distForm.photo)
@@ -855,20 +824,20 @@ function EditPartnerModal({ partnerType, item, onClose, onUpdated }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600">
           <X size={20} />
         </button>
 
-        <h2 className="text-lg sm:text-xl font-semibold mb-5 pr-8">
+        <h2 className="text-xl font-semibold mb-5">
           {partnerType === "distributeur" ? "Modifier le distributeur" : "Modifier le commerçant"}
         </h2>
 
         {localError && (
           <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
             <AlertCircle size={16} className="shrink-0" />
-            <span className="flex-1 break-words">{localError}</span>
+            <span className="flex-1">{localError}</span>
             <button onClick={() => setLocalError(null)} className="ml-auto hover:opacity-70 transition-opacity">
               <X size={14} />
             </button>
@@ -912,7 +881,7 @@ function EditPartnerModal({ partnerType, item, onClose, onUpdated }) {
             </FormField>
 
             <SectionTitle title="Informations personnelles" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <FormField label="Prénom" required>
                 <FormInput
                   placeholder="Prénom"
@@ -977,7 +946,7 @@ function EditPartnerModal({ partnerType, item, onClose, onUpdated }) {
         ) : (
           <div className="space-y-4">
             <SectionTitle title="Informations personnelles" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <FormField label="Prénom" required>
                 <FormInput
                   placeholder="Prénom"
@@ -1049,12 +1018,152 @@ function EditPartnerModal({ partnerType, item, onClose, onUpdated }) {
 }
 
 /* ══════════════════════════════════════════════
-   LISTE À COCHER GÉNÉRIQUE
+   RÉAPPROVISIONNEMENT — ASSISTANT EN ÉTAPES
    ──────────────────────────────────────────────
-   Utilisée par "Assigner service" et "Retirer service".
+   Parcours "Carte prépayée" :  Service → Banque → Formule → Produits
+   Parcours "Abonnement Canal+" : Service → Décodeurs
+   Chaque étape ne montre que ce qui dépend du choix précédent.
+   L'étape finale (Produits / Décodeurs) permet de cocher plusieurs
+   articles, d'ajuster leur quantité, et affiche en direct le nombre
+   d'articles sélectionnés et le prix total avant validation.
    ══════════════════════════════════════════════ */
 
-function CheckableItemRow({ item, checked, onToggle }) {
+const RESTOCK_SERVICES = [
+  {
+    id:          "carte_prepaid",
+    label:       "Carte prépayée",
+    description: "Banque, puis formule, puis produits",
+  },
+  {
+    id:          "canal_plus",
+    label:       "Abonnement Canal+",
+    description: "Sélection directe des décodeurs",
+  },
+]
+
+const RESTOCK_BANQUES = [
+  { id: "uba",     label: "UBA" },
+  { id: "ecobank", label: "Ecobank" },
+  { id: "boa",     label: "Bank Of Africa" },
+  { id: "orabank", label: "Orabank" },
+]
+
+const RESTOCK_FORMULES = {
+  uba: [
+    { id: "classique", label: "Formule Classique" },
+    { id: "premium",   label: "Formule Premium" },
+  ],
+  ecobank: [
+    { id: "standard", label: "Formule Standard" },
+    { id: "gold",     label: "Formule Gold" },
+  ],
+  boa: [
+    { id: "essentiel", label: "Formule Essentiel" },
+    { id: "privilege",  label: "Formule Privilège" },
+  ],
+  orabank: [
+    { id: "basic", label: "Formule Basic" },
+    { id: "plus",  label: "Formule Plus" },
+  ],
+}
+
+const RESTOCK_PRODUITS = {
+  "uba_classique":     [
+    { id: "uba-c-1", name: "Carte prépayée UBA Classique 5 000",  price: 5000  },
+    { id: "uba-c-2", name: "Carte prépayée UBA Classique 10 000", price: 10000 },
+    { id: "uba-c-3", name: "Carte prépayée UBA Classique 25 000", price: 25000 },
+  ],
+  "uba_premium":       [
+    { id: "uba-p-1", name: "Carte prépayée UBA Premium 25 000",  price: 25000 },
+    { id: "uba-p-2", name: "Carte prépayée UBA Premium 50 000",  price: 50000 },
+    { id: "uba-p-3", name: "Carte prépayée UBA Premium 100 000", price: 100000 },
+  ],
+  "ecobank_standard":  [
+    { id: "eco-s-1", name: "Carte prépayée Ecobank Standard 5 000",  price: 5000  },
+    { id: "eco-s-2", name: "Carte prépayée Ecobank Standard 10 000", price: 10000 },
+  ],
+  "ecobank_gold":      [
+    { id: "eco-g-1", name: "Carte prépayée Ecobank Gold 25 000",  price: 25000 },
+    { id: "eco-g-2", name: "Carte prépayée Ecobank Gold 50 000",  price: 50000 },
+  ],
+  "boa_essentiel":     [
+    { id: "boa-e-1", name: "Carte prépayée BOA Essentiel 5 000",  price: 5000  },
+    { id: "boa-e-2", name: "Carte prépayée BOA Essentiel 10 000", price: 10000 },
+  ],
+  "boa_privilege":     [
+    { id: "boa-pr-1", name: "Carte prépayée BOA Privilège 50 000",  price: 50000 },
+    { id: "boa-pr-2", name: "Carte prépayée BOA Privilège 100 000", price: 100000 },
+  ],
+  "orabank_basic":     [
+    { id: "ora-b-1", name: "Carte prépayée Orabank Basic 5 000",  price: 5000  },
+    { id: "ora-b-2", name: "Carte prépayée Orabank Basic 10 000", price: 10000 },
+  ],
+  "orabank_plus":      [
+    { id: "ora-pl-1", name: "Carte prépayée Orabank Plus 25 000", price: 25000 },
+    { id: "ora-pl-2", name: "Carte prépayée Orabank Plus 50 000", price: 50000 },
+  ],
+}
+
+const RESTOCK_DECODEURS = [
+  { id: "decoder-mini",   name: "Décodeur Canal+ Mini",           price: 15000 },
+  { id: "decoder-access", name: "Décodeur Canal+ Access",         price: 25000 },
+  { id: "decoder-evasion",name: "Décodeur Canal+ Évasion",        price: 45000 },
+  { id: "decoder-hd",     name: "Décodeur Canal+ HD",             price: 65000 },
+  { id: "decoder-parab",  name: "Décodeur Canal+ + Parabole kit", price: 85000 },
+]
+
+/** Fil d'ariane cliquable : permet de revenir à une étape déjà validée. */
+function RestockBreadcrumb({ steps, currentIndex, onNavigate }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-5 flex-wrap">
+      {steps.map((s, i) => (
+        <div key={s.key} className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={i > currentIndex}
+            onClick={() => i < currentIndex && onNavigate(i)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors
+              ${i === currentIndex
+                ? "bg-[#1EA4DC] text-white"
+                : i < currentIndex
+                ? "bg-blue-50 text-[#1EA4DC] hover:bg-blue-100 cursor-pointer"
+                : "bg-gray-100 text-gray-300 cursor-not-allowed"
+              }`}
+          >
+            {s.label}
+          </button>
+          {i < steps.length - 1 && <ChevronRight size={12} className="text-gray-300 shrink-0" />}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Carte de sélection générique (service / banque / formule). */
+function SelectionCard({ icon, title, subtitle, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-4 rounded-xl border border-gray-200 hover:border-[#1EA4DC] hover:bg-blue-50 transition-colors text-left"
+    >
+      {icon && (
+        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-[#1EA4DC] shrink-0">
+          {icon}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-800 truncate">{title}</p>
+        {subtitle && <p className="text-xs text-gray-400 truncate">{subtitle}</p>}
+      </div>
+      <ChevronRight size={16} className="text-gray-300 shrink-0" />
+    </button>
+  )
+}
+
+/** Ligne produit avec case à cocher + sélecteur de quantité. */
+function RestockProductRow({ product, qty, onToggle, onQtyChange }) {
+  const checked = qty > 0
   return (
     <div
       className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-colors
@@ -1064,140 +1173,254 @@ function CheckableItemRow({ item, checked, onToggle }) {
         <input
           type="checkbox"
           checked={checked}
-          onChange={() => onToggle(item)}
+          onChange={() => onToggle(product)}
           className="accent-[#1EA4DC] w-4 h-4 shrink-0"
         />
         <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-          {item.description && <p className="text-xs text-gray-400 truncate">{item.description}</p>}
-          {item.since && <p className="text-xs text-gray-400 truncate">Assigné le {item.since}</p>}
+          <p className="text-sm font-medium text-gray-800 truncate">{product.name}</p>
+          <p className="text-xs text-gray-400">{formatFCFA(product.price)} / unité</p>
         </div>
       </label>
+
+      {checked && (
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => onQtyChange(product.id, Math.max(1, qty - 1))}
+            className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 transition-colors"
+          >
+            −
+          </button>
+          <span className="w-6 text-center text-sm font-semibold text-gray-700">{qty}</span>
+          <button
+            type="button"
+            onClick={() => onQtyChange(product.id, qty + 1)}
+            className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 transition-colors"
+          >
+            +
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-/**
- * Modal générique de sélection multiple avec case "Tout sélectionner".
- * Réutilisée pour : Assigner service, Retirer service.
- */
-function CheckableListModal({
-  title,
-  label,
-  items,
-  loading = false,
-  confirmLabel = "Confirmer",
-  confirmingLabel = "Traitement...",
-  emptyMessage = "Aucun élément disponible",
-  confirmButtonClass = "bg-[#1EA4DC] hover:bg-[#178dbf]",
-  onClose,
-  onConfirm,
-}) {
-  const [selected,    setSelected]    = useState({})
-  const [observation, setObservation] = useState("")
-  const [submitting,  setSubmitting]  = useState(false)
-  const [localError,  setLocalError]  = useState(null)
+function RestockWizardModal({ item, onClose, onConfirm }) {
+  const label = item?.raisonSociale && item.raisonSociale !== "-" ? item.raisonSociale : item?.nom
 
-  useEffect(() => {
-    setSelected(prev => {
-      const ids = new Set(items.map(it => it.id))
-      const next = {}
-      Object.entries(prev).forEach(([id, val]) => { if (ids.has(id)) next[id] = val })
-      return next
-    })
-  }, [items])
+  const [selectedService, setSelectedService] = useState(null) // "carte_prepaid" | "canal_plus"
+  const [selectedBank,    setSelectedBank]    = useState(null)
+  const [selectedFormule, setSelectedFormule] = useState(null)
+  const [cart,         setCart]         = useState({}) // { [productId]: { product, qty } }
+  const [observation,  setObservation]  = useState("")
+  const [submitting,   setSubmitting]   = useState(false)
+  const [localError,   setLocalError]   = useState(null)
 
-  const allSelected = items.length > 0 && items.every(it => selected[it.id])
+  const isCarte = selectedService === "carte_prepaid"
+  const isCanal = selectedService === "canal_plus"
 
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelected({})
-    } else {
-      const next = {}
-      items.forEach(it => { next[it.id] = it })
-      setSelected(next)
-    }
+  // Étape courante déduite des choix déjà faits
+  let stepKey = "service"
+  if (isCarte) {
+    if (!selectedBank)         stepKey = "bank"
+    else if (!selectedFormule) stepKey = "formule"
+    else                       stepKey = "products"
+  } else if (isCanal) {
+    stepKey = "decodeurs"
   }
 
-  const toggleItem = (item) => {
-    setSelected(prev => {
+  const steps = isCarte
+    ? [
+        { key: "service",  label: "Service" },
+        { key: "bank",     label: "Banque" },
+        { key: "formule",  label: "Formule" },
+        { key: "products", label: "Produits" },
+      ]
+    : isCanal
+    ? [
+        { key: "service",   label: "Service" },
+        { key: "decodeurs", label: "Décodeurs" },
+      ]
+    : [{ key: "service", label: "Service" }]
+
+  const currentIndex = Math.max(0, steps.findIndex(s => s.key === stepKey))
+
+  const resetSelection = () => {
+    setSelectedService(null)
+    setSelectedBank(null)
+    setSelectedFormule(null)
+    setCart({})
+  }
+
+  const goToStep = (index) => {
+    const key = steps[index]?.key
+    setLocalError(null)
+    if (key === "service")      resetSelection()
+    else if (key === "bank")    { setSelectedBank(null); setSelectedFormule(null); setCart({}) }
+    else if (key === "formule") { setSelectedFormule(null); setCart({}) }
+  }
+
+  const goBack = () => {
+    setLocalError(null)
+    if (stepKey === "bank")          setSelectedService(null)
+    else if (stepKey === "formule")  setSelectedBank(null)
+    else if (stepKey === "products") { setSelectedFormule(null); setCart({}) }
+    else if (stepKey === "decodeurs") setSelectedService(null)
+  }
+
+  const toggleProduct = (product) => {
+    setCart(prev => {
       const next = { ...prev }
-      if (next[item.id]) delete next[item.id]
-      else next[item.id] = item
+      if (next[product.id]) delete next[product.id]
+      else next[product.id] = { product, qty: 1 }
       return next
     })
   }
 
-  const selectedItems = Object.values(selected)
-  const count = selectedItems.length
+  const changeQty = (productId, qty) => {
+    setCart(prev => (prev[productId] ? { ...prev, [productId]: { ...prev[productId], qty } } : prev))
+  }
+
+  const cartItems  = Object.values(cart)
+  const totalCount = cartItems.reduce((sum, c) => sum + c.qty, 0)
+  const totalPrice = cartItems.reduce((sum, c) => sum + c.qty * c.product.price, 0)
+
+  const formuleKey = selectedBank && selectedFormule ? `${selectedBank}_${selectedFormule}` : null
+  const products   = formuleKey ? (RESTOCK_PRODUITS[formuleKey] || []) : []
+  const catalogue  = stepKey === "products" ? products : stepKey === "decodeurs" ? RESTOCK_DECODEURS : []
+
+  const bankLabel    = RESTOCK_BANQUES.find(b => b.id === selectedBank)?.label
+  const formuleLabel = (RESTOCK_FORMULES[selectedBank] || []).find(f => f.id === selectedFormule)?.label
 
   const handleConfirm = async () => {
-    if (count === 0) return
+    if (totalCount === 0) return
     setLocalError(null)
     setSubmitting(true)
     try {
-      await onConfirm({ selectedItems, observation })
+      await onConfirm({
+        service:     selectedService,
+        bank:        selectedBank,
+        bankLabel,
+        formule:     selectedFormule,
+        formuleLabel,
+        items:       cartItems.map(c => ({
+          productId: c.product.id,
+          name:      c.product.name,
+          qty:       c.qty,
+          price:     c.product.price,
+        })),
+        totalCount,
+        totalPrice,
+        observation,
+      })
     } catch (err) {
-      setLocalError(err?.message || "Une erreur est survenue")
+      setLocalError(err?.message || "Erreur lors du réapprovisionnement")
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
         <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600">
           <X size={20} />
         </button>
 
-        <h2 className="text-lg sm:text-xl font-semibold mb-1 pr-8">{title}</h2>
-        {label && <p className="text-sm text-gray-400 mb-4 break-words">{label}</p>}
+        <h2 className="text-xl font-semibold mb-1">Réapprovisionner</h2>
+        <p className="text-sm text-gray-400 mb-4">{label}</p>
+
+        <RestockBreadcrumb steps={steps} currentIndex={currentIndex} onNavigate={goToStep} />
+
+        {stepKey !== "service" && (
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#1EA4DC] mb-4 -mt-1 transition-colors w-fit"
+          >
+            <ArrowLeft size={14} /> Retour
+          </button>
+        )}
 
         {localError && (
           <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
             <AlertCircle size={16} className="shrink-0" />
-            <span className="flex-1 break-words">{localError}</span>
+            <span className="flex-1">{localError}</span>
             <button onClick={() => setLocalError(null)} className="ml-auto hover:opacity-70 transition-opacity">
               <X size={14} />
             </button>
           </div>
         )}
 
-        {!loading && items.length > 0 && (
-          <label className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 mb-3 cursor-pointer w-fit">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="accent-[#1EA4DC] w-4 h-4"
-            />
-            <span className="text-sm font-medium text-gray-700">Tout sélectionner</span>
-          </label>
+        {/* ÉTAPE 1 : SERVICE */}
+        {stepKey === "service" && (
+          <div className="space-y-3">
+            {RESTOCK_SERVICES.map(s => (
+              <SelectionCard
+                key={s.id}
+                icon={s.id === "carte_prepaid" ? <CreditCard size={20} /> : <Tv size={20} />}
+                title={s.label}
+                subtitle={s.description}
+                onClick={() => setSelectedService(s.id)}
+              />
+            ))}
+          </div>
         )}
 
-        <div className="space-y-2.5">
-          {loading ? (
-            <div className="flex items-center justify-center py-10 gap-3 text-gray-400">
-              <Loader2 size={18} className="animate-spin text-[#1EA4DC]" />
-              <span className="text-sm">Chargement...</span>
-            </div>
-          ) : items.length > 0 ? (
-            items.map(it => (
-              <CheckableItemRow
-                key={it.id}
-                item={it}
-                checked={!!selected[it.id]}
-                onToggle={toggleItem}
+        {/* ÉTAPE 2 (carte prépayée) : BANQUE */}
+        {stepKey === "bank" && (
+          <div className="space-y-3">
+            {RESTOCK_BANQUES.map(b => (
+              <SelectionCard
+                key={b.id}
+                icon={<Landmark size={20} />}
+                title={b.label}
+                onClick={() => setSelectedBank(b.id)}
               />
-            ))
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-6">{emptyMessage}</p>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
 
-        {!loading && items.length > 0 && (
+        {/* ÉTAPE 3 (carte prépayée) : FORMULE */}
+        {stepKey === "formule" && (
+          <div className="space-y-3">
+            {(RESTOCK_FORMULES[selectedBank] || []).map(f => (
+              <SelectionCard
+                key={f.id}
+                title={f.label}
+                subtitle={bankLabel}
+                onClick={() => setSelectedFormule(f.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ÉTAPE FINALE : PRODUITS (carte prépayée) ou DÉCODEURS (canal+) */}
+        {(stepKey === "products" || stepKey === "decodeurs") && (
           <>
+            {stepKey === "products" && (
+              <p className="text-xs text-gray-400 mb-3">
+                {bankLabel} · {formuleLabel}
+              </p>
+            )}
+
+            <div className="space-y-2.5">
+              {catalogue.map(p => (
+                <RestockProductRow
+                  key={p.id}
+                  product={p}
+                  qty={cart[p.id]?.qty || 0}
+                  onToggle={toggleProduct}
+                  onQtyChange={changeQty}
+                />
+              ))}
+              {catalogue.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">
+                  Aucun produit disponible pour cette sélection
+                </p>
+              )}
+            </div>
+
             <div className="mt-4">
               <FormField label="Observation (optionnel)">
                 <textarea
@@ -1213,17 +1436,18 @@ function CheckableListModal({
             <div className="sticky bottom-0 bg-white pt-4 mt-4 border-t border-gray-100">
               <div className="flex items-center justify-between text-sm mb-3">
                 <span className="text-gray-500">
-                  {count} élément{count > 1 ? "s" : ""} sélectionné{count > 1 ? "s" : ""}
+                  {totalCount} produit{totalCount > 1 ? "s" : ""} sélectionné{totalCount > 1 ? "s" : ""}
                 </span>
+                <span className="font-semibold text-gray-800">{formatFCFA(totalPrice)}</span>
               </div>
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={count === 0 || submitting}
-                className={`w-full text-white py-3.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${confirmButtonClass}`}
+                disabled={totalCount === 0 || submitting}
+                className="w-full bg-[#1EA4DC] text-white py-3.5 rounded-xl text-sm font-bold hover:bg-[#178dbf] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {submitting && <Loader2 size={16} className="animate-spin" />}
-                {submitting ? confirmingLabel : confirmLabel}
+                {submitting ? "Réapprovisionnement..." : "Réapprovisionner"}
               </button>
             </div>
           </>
@@ -1249,26 +1473,20 @@ export default function Partenaires() {
   const [deleteModal,  setDeleteModal]  = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
 
+  //  États pour les nouvelles actions
+  const [restockModal, setRestockModal] = useState(false)
+  const [releaseStockModal, setReleaseStockModal] = useState(false)
+  const [assignParabolaModal, setAssignParabolaModal] = useState(false)
   const [assignServiceModal, setAssignServiceModal] = useState(false)
   const [removeServiceModal, setRemoveServiceModal] = useState(false)
   const [searchQuery,  setSearchQuery]  = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
 
-  // Catalogue de services de l'entreprise, chargé depuis l'API à
-  // l'ouverture de la modale "Assigner service".
-  const [services,        setServices]        = useState([])
-  const [servicesLoading, setServicesLoading]  = useState(false)
-
-  // Services déjà assignés à un partenaire, chargés depuis l'API à
-  // l'ouverture de la modale "Retirer service".
-  const [assignedServices,        setAssignedServices]        = useState([])
-  const [assignedServicesLoading, setAssignedServicesLoading]  = useState(false)
-
   // IDs des lignes dont le statut est en cours de bascule (appel API en cours)
   const [togglingIds, setTogglingIds] = useState(() => new Set())
 
   const [currentPage, setCurrentPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(20) // limite par défaut : 20 éléments / page
+  const [rowsPerPage, setRowsPerPage] = useState(10)
   const [totalDist,   setTotalDist]   = useState(0)
   const [totalMerch,  setTotalMerch]  = useState(0)
 
@@ -1284,19 +1502,7 @@ export default function Partenaires() {
     return id
   }, [])
 
-  /*  CORRECTION PAGINATION :
-      Avant, le fetch envoyait déjà `page` et `limit` à l'API (qui ne
-      renvoyait donc que 20 éléments), puis le rendu redécoupait CE
-      tableau déjà réduit avec filteredData.slice(start, end) → sur la
-      page 2, on tentait de découper les éléments 20 à 40 dans un
-      tableau qui n'en contenait que 20, ce qui donnait un résultat
-      vide et bloquait la pagination.
-
-      Comme dans Produits.jsx, on récupère maintenant TOUTE la liste en
-      un seul appel (limite haute, page 1), et c'est le rendu qui gère
-      seul la recherche, le filtre de statut et la pagination page par
-      page côté client. */
-  const fetchDistributeurs = useCallback(async () => {
+  const fetchDistributeurs = useCallback(async (page = 1, limit = 10) => {
     try {
       setLoading(true)
       const { token } = getAuthData()
@@ -1305,7 +1511,7 @@ export default function Partenaires() {
       if (!companyId) throw new Error("CompanyId manquant")
 
       const res = await axios.get(
-        `${DIST_API}/${companyId}?page=1&limit=1000`,
+        `${DIST_API}/${companyId}?page=${page}&limit=${limit}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       const raw = Array.isArray(res.data?.data) ? res.data.data : []
@@ -1319,7 +1525,7 @@ export default function Partenaires() {
     }
   }, [resolveCompanyId, showError])
 
-  const fetchCommercants = useCallback(async () => {
+  const fetchCommercants = useCallback(async (page = 1, limit = 10) => {
     try {
       setLoading(true)
       const { token } = getAuthData()
@@ -1328,7 +1534,7 @@ export default function Partenaires() {
       if (!companyId) throw new Error("CompanyId manquant")
 
       const res = await axios.get(
-        `${MERCHANT_API}/${companyId}?page=1&limit=1000`,
+        `${MERCHANT_API}/${companyId}?page=${page}&limit=${limit}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       const raw = Array.isArray(res.data?.data) ? res.data.data : []
@@ -1342,77 +1548,12 @@ export default function Partenaires() {
     }
   }, [resolveCompanyId, showError])
 
-  /**
-   * ✅ CONFIRMÉ — GET /products/services/company/:companyId
-   * Récupère la liste des services de l'entreprise, utilisée pour
-   * alimenter la modale "Assigner service".
-   */
-  const fetchAvailableServices = useCallback(async () => {
-    try {
-      setServicesLoading(true)
-      let { token, companyId } = getAuthData()
-      if (!token) throw new Error("Token manquant")
-      if (!companyId) {
-        const profile = await fetchProfile()
-        if (!profile) throw new Error("Impossible de récupérer le profil")
-        companyId = profile?.company?.id
-      }
-      if (!companyId) throw new Error("CompanyId manquant")
-
-      const res = await axios.get(`${SERVICES_LIST_API}/${companyId}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      })
-      const raw = Array.isArray(res.data?.data) ? res.data.data : []
-      setServices(raw.map(normalizeService))
-    } catch (err) {
-      if (err?.response?.status === 401) {
-        localStorage.removeItem("token")
-        localStorage.removeItem("user")
-        localStorage.removeItem("company")
-      }
-      showError(err?.response?.data?.message || err?.response?.data?.description || err.message || "Impossible de charger les services")
-      setServices([])
-    } finally {
-      setServicesLoading(false)
-    }
-  }, [showError])
-
-  /**
-   * ✅ CONFIRMÉ — GET /products/partners/services/:partnerId?isMerchant=true|false
-   * Récupère la liste des services déjà assignés à un partenaire donné,
-   * utilisée pour alimenter la modale "Retirer service".
-   */
-  const fetchAssignedServices = useCallback(async (partnerId, isMerchant) => {
-    try {
-      setAssignedServicesLoading(true)
-      const { token } = getAuthData()
-      if (!token) throw new Error("Token manquant")
-      if (!partnerId) throw new Error("Identifiant du partenaire manquant")
-
-      const res = await axios.get(
-        `${PARTNER_SERVICES_API(partnerId)}?isMerchant=${isMerchant}`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
-      )
-      const raw = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : []
-      setAssignedServices(raw.map(normalizeAssignedService))
-    } catch (err) {
-      showError(err?.response?.data?.description || err.message || "Impossible de charger les services assignés")
-      setAssignedServices([])
-    } finally {
-      setAssignedServicesLoading(false)
-    }
-  }, [showError])
-
   useEffect(() => {
-    if (activeTab === "distributeurs") fetchDistributeurs()
-    else                               fetchCommercants()
-  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (activeTab === "distributeurs") fetchDistributeurs(currentPage, rowsPerPage)
+    else                               fetchCommercants(currentPage, rowsPerPage)
+  }, [activeTab, currentPage, rowsPerPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Revenir automatiquement à la page 1 quand on change d'onglet, de recherche,
-  // de filtre de statut ou du nombre d'éléments par page.
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [activeTab, searchQuery, statusFilter, rowsPerPage])
+  useEffect(() => { setCurrentPage(1) }, [activeTab, searchQuery, statusFilter])
 
   const rawData = activeTab === "distributeurs" ? distributeurs : commercants
 
@@ -1432,19 +1573,13 @@ export default function Partenaires() {
   const end           = start + rowsPerPage
   const paginatedData = filteredData.slice(start, end)
 
-  // Recaler la page courante si elle devient invalide (ex: filtrage qui réduit
-  // fortement le nombre de résultats affichables)
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
   /**
    * Active / désactive un distributeur ou un commerçant de façon dynamique
    * via l'API PATCH .../toggle-status, en récupérant l'id du partenaire
    * directement dans l'URL de l'endpoint.
    */
   const handleToggleStatus = async (item) => {
-    if (togglingIds.has(item.id)) return
+    if (togglingIds.has(item.id)) return // évite les doubles clics pendant l'appel en cours
 
     const newIsActive = !item.isActive
     const label = item.raisonSociale && item.raisonSociale !== "-" ? item.raisonSociale : item.nom
@@ -1514,147 +1649,118 @@ export default function Partenaires() {
   const handleCreated = useCallback((type, message) => {
     showSuccess(message)
     if (type === "distributor") {
-      fetchDistributeurs()
+      fetchDistributeurs(currentPage, rowsPerPage)
     } else {
-      fetchCommercants()
+      fetchCommercants(currentPage, rowsPerPage)
     }
-  }, [showSuccess, fetchDistributeurs, fetchCommercants])
+  }, [showSuccess, fetchDistributeurs, fetchCommercants, currentPage, rowsPerPage])
 
+  //  Rafraîchit la liste après modification réussie d'un partenaire
   const handleUpdated = useCallback((type, message) => {
     showSuccess(message)
     if (type === "distributor") {
-      fetchDistributeurs()
+      fetchDistributeurs(currentPage, rowsPerPage)
     } else {
-      fetchCommercants()
+      fetchCommercants(currentPage, rowsPerPage)
     }
-  }, [showSuccess, fetchDistributeurs, fetchCommercants])
+  }, [showSuccess, fetchDistributeurs, fetchCommercants, currentPage, rowsPerPage])
 
+  //  Fonction pour naviguer vers la page de détail du distributeur
   const handleDetailDistributor = (item) => {
     navigate(`/detail_distributeur/${item.id}`)
   }
 
+  // Fonction pour naviguer vers la page de détail du commerçant
   const handleDetailMerchant = (item) => {
     navigate(`/detail_commercant/${item.id}`)
+  }
+
+  //  Handlers pour les nouvelles actions
+  const handleRestockInventory = (item) => {
+    setSelectedItem(item)
+    setRestockModal(true)
+  }
+
+  const handleReleaseStock = (item) => {
+    setSelectedItem(item)
+    setReleaseStockModal(true)
+  }
+
+  const handleAssignParabola = (item) => {
+    setSelectedItem(item)
+    setAssignParabolaModal(true)
   }
 
   const handleAssignService = (item) => {
     setSelectedItem(item)
     setAssignServiceModal(true)
-    fetchAvailableServices()
   }
 
   const handleRemoveService = (item) => {
     setSelectedItem(item)
     setRemoveServiceModal(true)
-    fetchAssignedServices(item.id, activeTab === "commercants")
   }
 
   /**
-   * ✅ CONFIRMÉ — Assigne les services cochés au partenaire sélectionné :
-   * POST /products/distributor/assign-multiple-services { distributorId, serviceIds }
-   * POST /products/merchant/assign-multiple-services    { merchantId, serviceIds }
+   * Confirmation finale du réapprovisionnement, déclenchée par
+   * RestockWizardModal une fois que l'utilisateur a coché ses
+   * produits/décodeurs et cliqué sur "Réapprovisionner".
    */
-  const handleConfirmAssignService = useCallback(async ({ selectedItems }) => {
+  const handleConfirmRestock = useCallback(async (payload) => {
     const label = selectedItem?.raisonSociale && selectedItem.raisonSociale !== "-"
       ? selectedItem.raisonSociale
       : selectedItem?.nom
-    const isDistributeur = activeTab === "distributeurs"
 
     try {
       const { token } = getAuthData()
-      if (!token) throw new Error("Token manquant")
-      if (!selectedItem?.id) throw new Error("Identifiant du partenaire manquant")
-
-      const url = isDistributeur ? ASSIGN_SERVICE_DISTRIBUTOR_API : ASSIGN_SERVICE_MERCHANT_API
-      const payload = {
-        serviceIds: selectedItems.map(it => it.id),
-        ...(isDistributeur ? { distributorId: selectedItem.id } : { merchantId: selectedItem.id }),
-      }
-
-      await axios.post(url, payload, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-      })
-
-      showSuccess(
-        `${selectedItems.length} service${selectedItems.length > 1 ? "s" : ""} assigné${selectedItems.length > 1 ? "s" : ""} à "${label}" avec succès`
-      )
-      setAssignServiceModal(false)
-      setSelectedItem(null)
-    } catch (err) {
-      const message = err?.response?.data?.description || err?.response?.data?.message || err.message || "Impossible d'assigner le/les service(s)"
-      showError(message)
-      throw new Error(message)
-    }
-  }, [selectedItem, activeTab, showSuccess, showError])
-
-  /**
-   * ✅ CONFIRMÉ — Retire les services cochés (déjà assignés) de ce partenaire :
-   * DELETE /products/partners/services/:serviceAssignmentId?isMerchant=true|false
-   */
-  const handleConfirmRemoveService = useCallback(async ({ selectedItems }) => {
-    const label = selectedItem?.raisonSociale && selectedItem.raisonSociale !== "-"
-      ? selectedItem.raisonSociale
-      : selectedItem?.nom
-    const isMerchant = activeTab === "commercants"
-
-    try {
-      const { token } = getAuthData()
-      if (!token) throw new Error("Token manquant")
-
-      await Promise.all(
-        selectedItems.map(it =>
-          axios.delete(`${PARTNER_SERVICES_API(it.id)}?isMerchant=${isMerchant}`, {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-          })
+      if (token && selectedItem?.id) {
+        await axios.post(
+          RESTOCK_API(selectedItem.id),
+          payload,
+          { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
         )
-      )
-
+      }
       showSuccess(
-        `${selectedItems.length} service${selectedItems.length > 1 ? "s" : ""} retiré${selectedItems.length > 1 ? "s" : ""} de "${label}"`
+        `${payload.totalCount} produit${payload.totalCount > 1 ? "s" : ""} réapprovisionné${payload.totalCount > 1 ? "s" : ""} pour "${label}" — Total : ${formatFCFA(payload.totalPrice)}`
       )
-      setRemoveServiceModal(false)
+      setRestockModal(false)
       setSelectedItem(null)
     } catch (err) {
-      const message = err?.response?.data?.description || err?.response?.data?.message || err.message || "Impossible de retirer le/les service(s)"
-      showError(message)
-      throw new Error(message)
+      showError(err?.response?.data?.description || err.message || "Impossible de réapprovisionner le partenaire")
+      throw err
     }
-  }, [selectedItem, activeTab, showSuccess, showError])
+  }, [selectedItem, showSuccess, showError])
 
   return (
-    <div className="w-full max-w-full overflow-x-hidden p-3 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
+    <div className="p-8 space-y-6">
 
       <div>
-        <h1 className="text-lg sm:text-xl lg:text-2xl font-semibold">Gestion des Partenaires</h1>
-        <p className="text-gray-500 text-xs sm:text-sm lg:text-base">Gérer distributeurs et commerçants</p>
+        <h1 className="text-2xl font-semibold">Gestion des Partenaires</h1>
+        <p className="text-gray-500">Gérer distributeurs et commerçants</p>
       </div>
 
-      <div className="flex gap-1.5 sm:gap-2 bg-gray-100 rounded-full p-1 w-fit max-w-full overflow-x-auto">
+      <div className="flex gap-2 bg-gray-100 rounded-full p-1 w-fit">
         <Tab label="Distributeurs" active={activeTab === "distributeurs"} onClick={() => setActiveTab("distributeurs")} />
         <Tab label="Commerçants"   active={activeTab === "commercants"}   onClick={() => setActiveTab("commercants")} />
       </div>
 
       <NotificationBanner notif={notif} onDismiss={dismiss} />
 
-      <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-6 space-y-4 sm:space-y-6 min-w-0">
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
 
-        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+        <div className="flex justify-between items-start gap-4 flex-wrap">
           <div>
-            <h2 className="font-semibold text-base sm:text-lg">
+            <h2 className="font-semibold text-lg">
               {activeTab === "distributeurs" ? "Liste des Distributeurs" : "Liste des Commerçants"}
             </h2>
-            <p className="text-gray-400 text-xs sm:text-sm">
+            <p className="text-gray-400 text-sm">
               {filteredData.length}{" "}
               {activeTab === "distributeurs" ? "Distributeur(s)" : "Commerçant(s)"}
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:flex-1 lg:justify-end lg:flex-wrap">
-            <div className="relative w-full sm:w-64">
+          <div className="flex items-center gap-3 flex-1 justify-end flex-wrap">
+            <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 placeholder="Rechercher..."
@@ -1667,7 +1773,7 @@ export default function Partenaires() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full sm:w-auto bg-gray-100 rounded-lg px-4 py-2 text-sm outline-none"
+              className="bg-gray-100 rounded-lg px-4 py-2 text-sm outline-none"
             >
               <option value="all">Tous les statuts</option>
               <option value="active">Actif</option>
@@ -1676,7 +1782,7 @@ export default function Partenaires() {
 
             <button
               onClick={() => setCreateModal(true)}
-              className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap w-full sm:w-auto"
+              className="flex items-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap"
             >
               <Plus size={16} />
               Ajouter partenaire
@@ -1695,31 +1801,35 @@ export default function Partenaires() {
         )}
 
         {!loading && (
-          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
-            {activeTab === "distributeurs" ? (
-              <DistributeursTable
-                data={paginatedData}
-                onEdit={(item)   => { setSelectedItem(item); setEditModal(true) }}
-                onDelete={(item) => { setSelectedItem(item); setDeleteModal(true) }}
-                onDetail={handleDetailDistributor}
-                onToggleStatus={handleToggleStatus}
-                togglingIds={togglingIds}
-                onAssignService={handleAssignService}
-                onRemoveService={handleRemoveService}
-              />
-            ) : (
-              <CommercantTable
-                data={paginatedData}
-                onEdit={(item)   => { setSelectedItem(item); setEditModal(true) }}
-                onDelete={(item) => { setSelectedItem(item); setDeleteModal(true) }}
-                onDetail={handleDetailMerchant}
-                onToggleStatus={handleToggleStatus}
-                togglingIds={togglingIds}
-                onAssignService={handleAssignService}
-                onRemoveService={handleRemoveService}
-              />
-            )}
-          </div>
+          activeTab === "distributeurs" ? (
+            <DistributeursTable
+              data={paginatedData}
+              onEdit={(item)   => { setSelectedItem(item); setEditModal(true) }}
+              onDelete={(item) => { setSelectedItem(item); setDeleteModal(true) }}
+              onDetail={handleDetailDistributor}
+              onToggleStatus={handleToggleStatus}
+              togglingIds={togglingIds}
+              onRestockInventory={handleRestockInventory}
+              onReleaseStock={handleReleaseStock}
+              onAssignParabola={handleAssignParabola}
+              onAssignService={handleAssignService}
+              onRemoveService={handleRemoveService}
+            />
+          ) : (
+            <CommercantTable
+              data={paginatedData}
+              onEdit={(item)   => { setSelectedItem(item); setEditModal(true) }}
+              onDelete={(item) => { setSelectedItem(item); setDeleteModal(true) }}
+              onDetail={handleDetailMerchant}
+              onToggleStatus={handleToggleStatus}
+              togglingIds={togglingIds}
+              onRestockInventory={handleRestockInventory}
+              onReleaseStock={handleReleaseStock}
+              onAssignParabola={handleAssignParabola}
+              onAssignService={handleAssignService}
+              onRemoveService={handleRemoveService}
+            />
+          )
         )}
 
         <PaginationFooter
@@ -1727,7 +1837,7 @@ export default function Partenaires() {
           start={filteredData.length === 0 ? 0 : start + 1}
           end={Math.min(end, filteredData.length)}
           rowsPerPage={rowsPerPage}
-          setRowsPerPage={setRowsPerPage}
+          setRowsPerPage={(v) => { setRowsPerPage(v); setCurrentPage(1) }}
           currentPage={currentPage}
           setCurrentPage={setCurrentPage}
           totalPages={totalPages}
@@ -1754,23 +1864,23 @@ export default function Partenaires() {
 
       {deleteModal && selectedItem && (
         <Modal title="Confirmer la suppression" onClose={() => { setDeleteModal(false); setSelectedItem(null) }}>
-          <p className="text-gray-600 text-sm break-words">
+          <p className="text-gray-600 text-sm">
             Voulez-vous vraiment supprimer{" "}
             <strong>
               {selectedItem?.raisonSociale !== "-" ? selectedItem.raisonSociale : selectedItem?.nom}
             </strong> ?
             Cette action est irréversible.
           </p>
-          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 mt-6">
+          <div className="flex justify-end gap-3 mt-6">
             <button
               onClick={() => { setDeleteModal(false); setSelectedItem(null) }}
-              className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors w-full sm:w-auto"
+              className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
             >
               Annuler
             </button>
             <button
               onClick={handleDelete}
-              className="bg-red-500 text-white px-5 py-2 rounded-lg text-sm hover:bg-red-600 transition-colors w-full sm:w-auto"
+              className="bg-red-500 text-white px-5 py-2 rounded-lg text-sm hover:bg-red-600 transition-colors"
             >
               Supprimer
             </button>
@@ -1778,38 +1888,215 @@ export default function Partenaires() {
         </Modal>
       )}
 
-      {/*  ASSIGNER SERVICE — catalogue chargé en direct depuis l'API (products/services/company/:companyId), cochable un par un ou en une fois */}
-      {assignServiceModal && selectedItem && (
-        <CheckableListModal
-          title="Assigner service"
-          label={selectedItem?.raisonSociale && selectedItem.raisonSociale !== "-" ? selectedItem.raisonSociale : selectedItem?.nom}
-          items={services}
-          loading={servicesLoading}
-          confirmLabel="Assigner"
-          confirmingLabel="Assignation..."
-          emptyMessage="Aucun service disponible"
-          onClose={() => { setAssignServiceModal(false); setSelectedItem(null) }}
-          onConfirm={handleConfirmAssignService}
+      {/*  ASSISTANT DE RÉAPPROVISIONNEMENT (en étapes) */}
+      {restockModal && selectedItem && (
+        <RestockWizardModal
+          item={selectedItem}
+          onClose={() => { setRestockModal(false); setSelectedItem(null) }}
+          onConfirm={handleConfirmRestock}
         />
       )}
 
-      {/*  RETIRER SERVICE — services déjà assignés au partenaire, chargés en direct
-          depuis l'API (products/partners/services/:partnerId), cochables un par un
-          ou tous ensemble ; chaque validation déclenche un DELETE par service retiré */}
-      {removeServiceModal && selectedItem && (
-        <CheckableListModal
-          title="Retirer service"
-          label={selectedItem?.raisonSociale && selectedItem.raisonSociale !== "-" ? selectedItem.raisonSociale : selectedItem?.nom}
-          items={assignedServices}
-          loading={assignedServicesLoading}
-          confirmLabel="Retirer"
-          confirmingLabel="Retrait..."
-          emptyMessage="Aucun service assigné à ce partenaire"
-          confirmButtonClass="bg-red-500 hover:bg-red-600"
-          onClose={() => { setRemoveServiceModal(false); setSelectedItem(null) }}
-          onConfirm={handleConfirmRemoveService}
-        />
+      {releaseStockModal && selectedItem && (
+        <Modal 
+          title="Libérer stock" 
+          onClose={() => { setReleaseStockModal(false); setSelectedItem(null) }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Libérer le stock pour <strong>{selectedItem?.raisonSociale || selectedItem?.nom}</strong>
+            </p>
+            <FormField label="Quantité" required>
+              <FormInput placeholder="Entrer la quantité à libérer" type="number" required />
+            </FormField>
+            <FormField label="Raison" required>
+              <select className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors text-gray-700">
+                <option value="">Sélectionner une raison</option>
+                <option value="retour">Retour client</option>
+                <option value="dommage">Dommage</option>
+                <option value="remboursement">Remboursement</option>
+                <option value="autre">Autre</option>
+              </select>
+            </FormField>
+            <FormField label="Observation (optionnel)">
+              <textarea
+                placeholder="Ajouter une observation..."
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors placeholder-gray-400 text-gray-700 resize-none"
+                rows="3"
+              />
+            </FormField>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setReleaseStockModal(false); setSelectedItem(null) }}
+                className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  showSuccess(`Stock libéré pour "${selectedItem?.raisonSociale || selectedItem?.nom}"`)
+                  setReleaseStockModal(false)
+                  setSelectedItem(null)
+                }}
+                className="bg-[#1EA4DC] text-white px-5 py-2 rounded-lg text-sm hover:bg-[#178dbf] transition-colors"
+              >
+                Libérer
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
+
+      {assignParabolaModal && selectedItem && (
+        <Modal 
+          title="Assigner parabole" 
+          onClose={() => { setAssignParabolaModal(false); setSelectedItem(null) }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Assigner une parabole à <strong>{selectedItem?.raisonSociale || selectedItem?.nom}</strong>
+            </p>
+            <FormField label="Sélectionner une parabole" required>
+              <select className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors text-gray-700">
+                <option value="">Choisir une parabole</option>
+                <option value="parabola1">Parabola 1</option>
+                <option value="parabola2">Parabola 2</option>
+                <option value="parabola3">Parabola 3</option>
+              </select>
+            </FormField>
+            <FormField label="Observation (optionnel)">
+              <textarea
+                placeholder="Ajouter une observation..."
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors placeholder-gray-400 text-gray-700 resize-none"
+                rows="3"
+              />
+            </FormField>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setAssignParabolaModal(false); setSelectedItem(null) }}
+                className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  showSuccess(`Parabole assignée à "${selectedItem?.raisonSociale || selectedItem?.nom}"`)
+                  setAssignParabolaModal(false)
+                  setSelectedItem(null)
+                }}
+                className="bg-[#1EA4DC] text-white px-5 py-2 rounded-lg text-sm hover:bg-[#178dbf] transition-colors"
+              >
+                Assigner
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {assignServiceModal && selectedItem && (
+        <Modal 
+          title="Assigner service" 
+          onClose={() => { setAssignServiceModal(false); setSelectedItem(null) }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Assigner un service à <strong>{selectedItem?.raisonSociale || selectedItem?.nom}</strong>
+            </p>
+            <FormField label="Sélectionner un service" required>
+              <select className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors text-gray-700">
+                <option value="">Choisir un service</option>
+                <option value="service1">Service Canal+</option>
+                <option value="service2">Service Prépayé</option>
+                <option value="service3">Service Internet</option>
+              </select>
+            </FormField>
+            <FormField label="Date d'effet" required>
+              <FormInput placeholder="JJ/MM/YYYY" type="date" required />
+            </FormField>
+            <FormField label="Observation (optionnel)">
+              <textarea
+                placeholder="Ajouter une observation..."
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors placeholder-gray-400 text-gray-700 resize-none"
+                rows="3"
+              />
+            </FormField>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setAssignServiceModal(false); setSelectedItem(null) }}
+                className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  showSuccess(`Service assigné à "${selectedItem?.raisonSociale || selectedItem?.nom}"`)
+                  setAssignServiceModal(false)
+                  setSelectedItem(null)
+                }}
+                className="bg-[#1EA4DC] text-white px-5 py-2 rounded-lg text-sm hover:bg-[#178dbf] transition-colors"
+              >
+                Assigner
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {removeServiceModal && selectedItem && (
+        <Modal 
+          title="Retirer service" 
+          onClose={() => { setRemoveServiceModal(false); setSelectedItem(null) }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Retirer un service à <strong>{selectedItem?.raisonSociale || selectedItem?.nom}</strong>
+            </p>
+            <FormField label="Sélectionner le service à retirer" required>
+              <select className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors text-gray-700">
+                <option value="">Choisir un service</option>
+                <option value="service1">Service Canal+</option>
+                <option value="service2">Service Prépayé</option>
+                <option value="service3">Service Internet</option>
+              </select>
+            </FormField>
+            <FormField label="Raison du retrait" required>
+              <select className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors text-gray-700">
+                <option value="">Sélectionner une raison</option>
+                <option value="suspension">Suspension</option>
+                <option value="resiliation">Résiliation</option>
+                <option value="changement">Changement de service</option>
+                <option value="autre">Autre</option>
+              </select>
+            </FormField>
+            <FormField label="Observation (optionnel)">
+              <textarea
+                placeholder="Ajouter une observation..."
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-sm outline-none focus:border-[#1EA4DC] transition-colors placeholder-gray-400 text-gray-700 resize-none"
+                rows="3"
+              />
+            </FormField>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setRemoveServiceModal(false); setSelectedItem(null) }}
+                className="border border-gray-200 px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  showSuccess(`Service retiré à "${selectedItem?.raisonSociale || selectedItem?.nom}"`)
+                  setRemoveServiceModal(false)
+                  setSelectedItem(null)
+                }}
+                className="bg-[#1EA4DC] text-white px-5 py-2 rounded-lg text-sm hover:bg-[#178dbf] transition-colors"
+              >
+                Retirer
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
 
     </div>
   )
@@ -1825,6 +2112,9 @@ function ActionMenu({
   onDetail, 
   onToggleStatus, 
   isToggling,
+  onRestockInventory,
+  onReleaseStock,
+  onAssignParabola,
   onAssignService,
   onRemoveService,
   isOpen, 
@@ -1871,7 +2161,32 @@ function ActionMenu({
             <Pencil size={15} className="text-gray-500" /> Modifier
           </button>
 
+          {/*  NOUVELLES ACTIONS */}
           <div className="my-1 border-t border-gray-100" />
+
+          <button
+            type="button"
+            onClick={() => { onRestockInventory(item); onToggle() }}
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
+          >
+            <Package size={15} /> Réapprovisionner
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { onReleaseStock(item); onToggle() }}
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
+          >
+            <Unlock size={15} /> Libérer stock
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { onAssignParabola(item); onToggle() }}
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
+          >
+            <Radio size={15} /> Assigner parabole
+          </button>
 
           <button
             type="button"
@@ -1932,6 +2247,9 @@ function DistributeursTable({
   onDetail, 
   onToggleStatus,
   togglingIds,
+  onRestockInventory,
+  onReleaseStock,
+  onAssignParabola,
   onAssignService,
   onRemoveService
 }) {
@@ -1947,8 +2265,8 @@ function DistributeursTable({
   }, [])
 
   return (
-    <div ref={tableRef} className="rounded-xl">
-      <table className="table-auto min-w-[640px] w-full text-sm">
+    <div ref={tableRef} className="overflow-visible rounded-xl">
+      <table className="table-auto min-w-full w-full text-sm">
         <thead className="bg-[#1EA4DC] text-white">
           <tr>
             <th className="px-4 py-3 text-left font-semibold w-12">N°</th>
@@ -1967,6 +2285,7 @@ function DistributeursTable({
             >
               <td className="px-4 py-4 text-gray-400 text-sm">{i + 1}</td>
               <td className="px-4 py-4">
+                {/* NOM COMMERCIAL : tout en MAJUSCULES */}
                 <p className="font-semibold text-gray-800">
                   {item.raisonSociale !== "-" ? item.raisonSociale.toUpperCase() : "-"}
                 </p>
@@ -1976,6 +2295,7 @@ function DistributeursTable({
                 <p className="text-gray-700">{item.email}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{item.phone}</p>
               </td>
+              {/*  VILLE : première lettre majuscule, reste minuscule */}
               <td className="px-4 py-4 text-gray-600">{capitalizeCity(item.ville)}</td>
               <td className="px-4 py-4 text-center">
                 <StatusBadge status={item.status} loading={togglingIds?.has(item.id)} />
@@ -1989,6 +2309,9 @@ function DistributeursTable({
                   onDetail={onDetail}
                   onToggleStatus={onToggleStatus}
                   isToggling={togglingIds?.has(item.id)}
+                  onRestockInventory={onRestockInventory}
+                  onReleaseStock={onReleaseStock}
+                  onAssignParabola={onAssignParabola}
                   onAssignService={onAssignService}
                   onRemoveService={onRemoveService}
                   isOpen={openRow === item.id}
@@ -2014,6 +2337,9 @@ function CommercantTable({
   onDetail, 
   onToggleStatus,
   togglingIds,
+  onRestockInventory,
+  onReleaseStock,
+  onAssignParabola,
   onAssignService,
   onRemoveService
 }) {
@@ -2029,8 +2355,8 @@ function CommercantTable({
   }, [])
 
   return (
-    <div ref={tableRef} className="rounded-xl">
-      <table className="table-auto min-w-[560px] w-full text-sm">
+    <div ref={tableRef} className="overflow-visible rounded-xl">
+      <table className="table-auto min-w-full w-full text-sm">
         <thead className="bg-[#1EA4DC] text-white">
           <tr>
             <th className="px-4 py-3 text-left font-semibold w-12">N°</th>
@@ -2052,6 +2378,7 @@ function CommercantTable({
                 <p className="text-xs text-gray-400 mt-0.5">{item.phone}</p>
               </td>
               <td className="px-4 py-4">
+                {/*  VILLE : première lettre majuscule, reste minuscule */}
                 <p className="text-gray-700">{capitalizeCity(item.ville)}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{item.email}</p>
               </td>
@@ -2067,6 +2394,9 @@ function CommercantTable({
                   onDetail={onDetail}
                   onToggleStatus={onToggleStatus}
                   isToggling={togglingIds?.has(item.id)}
+                  onRestockInventory={onRestockInventory}
+                  onReleaseStock={onReleaseStock}
+                  onAssignParabola={onAssignParabola}
                   onAssignService={onAssignService}
                   onRemoveService={onRemoveService}
                   isOpen={openRow === item.id}
@@ -2090,7 +2420,7 @@ function CommercantTable({
 function StatusBadge({ status, loading = false }) {
   const isActive = status === "Actif"
   return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap
+    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold
       ${isActive ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"}`}
     >
       {loading && <Loader2 size={11} className="animate-spin" />}
@@ -2099,84 +2429,60 @@ function StatusBadge({ status, loading = false }) {
   )
 }
 
-/* ===================== PAGINATION ===================== */
-/* Style identique à celui de la page Produits (même composant, même classes). */
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex justify-between py-1.5 border-b border-gray-50 gap-4">
+      <span className="text-gray-400 shrink-0">{label}</span>
+      <span className="font-medium text-gray-700 text-right">{String(value ?? "-")}</span>
+    </div>
+  )
+}
 
 function PaginationFooter({ total, start, end, rowsPerPage, setRowsPerPage, currentPage, setCurrentPage, totalPages }) {
-  const isFirstPage = currentPage <= 1
-  const isLastPage  = currentPage >= totalPages
-
-  const btnClass = (disabled) =>
-    `p-1.5 rounded-md transition-colors ${
-      disabled
-        ? "text-gray-200 cursor-not-allowed"
-        : "text-gray-400 hover:text-[#1EA4DC] hover:bg-blue-50"
-    }`
-
   return (
-    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-t border-gray-200 pt-4 text-xs sm:text-sm">
-      <span className="text-center sm:text-left">
-        {total > 0 ? `Affichage de ${start} à ${end} sur ${total} entrées` : "Aucune entrée à afficher"}
-      </span>
-      <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
+    <div className="flex justify-between items-center border-t border-gray-200 pt-4 text-sm text-gray-500 flex-wrap gap-3">
+      <span>Affichage de {start} à {end} sur {total} entrées</span>
+      <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <label htmlFor="rowsPerPage" className="text-gray-500 whitespace-nowrap hidden sm:inline">Par page</label>
+          <span>Lignes par page :</span>
           <select
-            id="rowsPerPage"
             value={rowsPerPage}
             onChange={(e) => setRowsPerPage(+e.target.value)}
-            className="border border-gray-200 rounded px-2 py-1 text-xs sm:text-sm bg-white"
+            className="border border-gray-200 rounded px-2 py-1 text-sm"
           >
-            {[10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
+            {[5, 10, 20].map(n => <option key={n}>{n}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          <button
-            onClick={() => setCurrentPage(1)}
-            disabled={isFirstPage}
-            aria-label="Première page"
-            className={btnClass(isFirstPage)}
-          >
-            <ChevronsLeft size={18} />
-          </button>
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={isFirstPage}
-            aria-label="Page précédente"
-            className={btnClass(isFirstPage)}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="text-gray-600 whitespace-nowrap px-1.5 font-medium">
-            {currentPage} / {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={isLastPage}
-            aria-label="Page suivante"
-            className={btnClass(isLastPage)}
-          >
-            <ChevronRight size={18} />
-          </button>
-          <button
-            onClick={() => setCurrentPage(totalPages)}
-            disabled={isLastPage}
-            aria-label="Dernière page"
-            className={btnClass(isLastPage)}
-          >
-            <ChevronsRight size={18} />
-          </button>
+        <div className="flex items-center gap-1">
+          <PagBtn onClick={() => setCurrentPage(1)}                                disabled={currentPage === 1}>          <ChevronsLeft  size={16} /></PagBtn>
+          <PagBtn onClick={() => setCurrentPage(p => Math.max(1, p - 1))}          disabled={currentPage === 1}>          <ChevronLeft   size={16} /></PagBtn>
+          <span className="px-3 py-1 text-sm">Page <strong>{currentPage}</strong> sur {totalPages}</span>
+          <PagBtn onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}><ChevronRight  size={16} /></PagBtn>
+          <PagBtn onClick={() => setCurrentPage(totalPages)}                        disabled={currentPage === totalPages}><ChevronsRight size={16} /></PagBtn>
         </div>
       </div>
     </div>
   )
 }
 
-/* Tab identique à celle du fichier Produits (mêmes tailles, mêmes classes),
-   utilisée ici pour les boutons "Distributeurs" / "Commerçants". */
+function PagBtn({ onClick, disabled, children }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`p-1.5 rounded transition-colors ${disabled ? "text-gray-300 cursor-not-allowed" : "text-gray-500 hover:bg-gray-100"}`}
+    >
+      {children}
+    </button>
+  )
+}
+
 function Tab({ label, active, onClick }) {
   return (
-    <button onClick={onClick} className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-sm sm:text-base whitespace-nowrap ${active ? "bg-white shadow" : "text-gray-500"}`}>
+    <button
+      onClick={onClick}
+      className={`px-6 py-2 rounded-full text-sm transition-all ${active ? "bg-white shadow font-medium" : "text-gray-500"}`}
+    >
       {label}
     </button>
   )
@@ -2184,12 +2490,12 @@ function Tab({ label, active, onClick }) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl p-6 w-full max-w-lg relative shadow-xl max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600">
           <X size={20} />
         </button>
-        <h2 className="text-lg sm:text-xl font-semibold mb-5 pr-8">{title}</h2>
+        <h2 className="text-xl font-semibold mb-5">{title}</h2>
         {children}
       </div>
     </div>

@@ -172,7 +172,7 @@ export default function WalletPage() {
 
       {/* ===================== TRANSACTIONS ===================== */}
       {activeTab === "transactions" && (
-        <div className="bg-white rounded-xl border p-6 space-y-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
 
           {/* HEADER */}
           <div className="flex justify-between items-center">
@@ -267,7 +267,7 @@ function Tab({ label, active, onClick }) {
 
 function Section({ icon, title, color, cards }) {
   return (
-    <div className="bg-white rounded-xl border p-6 space-y-6">
+    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
       <div className="flex items-center gap-3">
         <div className={`w-9 h-9 ${color} rounded-lg flex items-center justify-center`}>
           {icon}
