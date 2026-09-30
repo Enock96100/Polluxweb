@@ -15,8 +15,27 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import axios from "axios"
+import useAuth from "../context/auth/utils"
 
 export default function DocumentsManagement() {
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
+
+  // PAYMENT_PROOF_MANAGEMENT : lecture d'une preuve de paiement
+  const canView = can("PAYMENT_PROOF_READ")
+  // ⚠️ À CONFIRMER : aucun code dédié dans le catalogue pour modifier ou
+  // supprimer une preuve de paiement (seuls PAYMENT_PROOF_READ et
+  // PAYMENT_PROOF_SUBMIT existent) — PAYMENT_PROOF_READ réutilisé comme
+  // proxy en attendant confirmation ; ces deux boutons n'ont d'ailleurs
+  // pas encore de handler branché dans ce fichier.
+  const canEdit   = can("PAYMENT_PROOF_READ")
+  const canDelete = can("PAYMENT_PROOF_READ")
+  // OPERATION_VALIDATION / OPERATION_REJECTION_CANCELLATION : valider ou
+  // rejeter une preuve de paiement (boutons du modal de détail)
+  const canApprove = can("PAYMENT_PROOF_APPROVE")
+  const canReject  = can("PAYMENT_PROOF_REJECT")
 
   /* ================= STATES ================= */
 
@@ -38,19 +57,6 @@ export default function DocumentsManagement() {
   const [totalPages, setTotalPages] = useState(1)
 
   /* ================= FETCH API ================= */
-  /*
-     CORRECTION DU BUG "la page saute en bas / tout le contenu clignote" :
-     Avant, le composant faisait `if (loading) return <div>Chargement...</div>`,
-     ce qui démontait ENTIÈREMENT la page (en-tête, cartes stats, filtres,
-     tableau, pagination) à chaque changement de page ou de nombre de lignes,
-     pour la remplacer par un simple texte. La hauteur de la page s'effondrait
-     puis revenait brutalement, ce qui donnait l'impression que la page
-     "sautait" ou revenait tout en bas.
-
-     Maintenant, `loading` n'affecte plus que le tableau : le reste de la page
-     (cartes, recherche, filtres, pagination) reste monté et stable, et un
-     léger voile "Chargement..." apparaît uniquement par-dessus le tableau.
-  */
 
   useEffect(() => {
 
@@ -63,7 +69,7 @@ export default function DocumentsManagement() {
         const token = localStorage.getItem("token")
 
         const response = await axios.get(
-          `https://youapi.youneed.app/pollux/dev/api/payment-proofs?page=${currentPage}&limit=${rowsPerPage}`,
+          `https://youapi.youneed.app/pollux/prod/api/payment-proofs?page=${currentPage}&limit=${rowsPerPage}`,
           {
             headers: {
               accept: "application/json",
@@ -242,10 +248,7 @@ export default function DocumentsManagement() {
 
         </div>
 
-        {/* TABLEAU — même style que le fichier Produits : conteneur arrondi,
-            lignes alternées gris clair / blanc, survol bleu clair.
-            `relative` permet de placer le voile de chargement UNIQUEMENT
-            sur le tableau, sans jamais démonter le reste de la page. */}
+        {/* TABLEAU */}
         <div className="rounded-xl border border-gray-100 -mx-4 sm:mx-0 overflow-x-auto relative">
 
           {loading && (
@@ -275,6 +278,9 @@ export default function DocumentsManagement() {
                     rowIndex={i}
                     {...item}
                     onViewDetail={() => setSelectedDoc(item)}
+                    canView={canView}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
                   />
                 ))
               ) : (
@@ -305,6 +311,8 @@ export default function DocumentsManagement() {
         <DetailModal
           doc={selectedDoc}
           onClose={() => setSelectedDoc(null)}
+          canApprove={canApprove}
+          canReject={canReject}
         />
       )}
 
@@ -314,7 +322,7 @@ export default function DocumentsManagement() {
 
 /* ================= DETAIL MODAL ================= */
 
-function DetailModal({ doc, onClose }) {
+function DetailModal({ doc, onClose, canApprove, canReject }) {
 
   const statusColor =
     doc.status === "Complétée"
@@ -342,12 +350,16 @@ function DetailModal({ doc, onClose }) {
             <p className="text-gray-500 text-sm mt-0.5 break-all">ID : {doc.metaId}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <button className="flex-1 sm:flex-none bg-[#1EA4DC] text-white px-4 sm:px-5 py-2 rounded-xl text-sm font-semibold hover:bg-[#189ecf] transition whitespace-nowrap">
-              Valider
-            </button>
-            <button className="flex-1 sm:flex-none bg-[#EF4444] text-white px-4 sm:px-5 py-2 rounded-xl text-sm font-semibold hover:bg-red-500 transition whitespace-nowrap">
-              Rejeter
-            </button>
+            {canApprove && (
+              <button className="flex-1 sm:flex-none bg-[#1EA4DC] text-white px-4 sm:px-5 py-2 rounded-xl text-sm font-semibold hover:bg-[#189ecf] transition whitespace-nowrap">
+                Valider
+              </button>
+            )}
+            {canReject && (
+              <button className="flex-1 sm:flex-none bg-[#EF4444] text-white px-4 sm:px-5 py-2 rounded-xl text-sm font-semibold hover:bg-red-500 transition whitespace-nowrap">
+                Rejeter
+              </button>
+            )}
             <button
               onClick={onClose}
               className="ml-1 p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition shrink-0"
@@ -447,24 +459,10 @@ function InfoRow({ label, value }) {
 }
 
 /* ================= MENU D'ACTIONS (PORTAL) ================= */
-/*
-   CORRECTION DU BUG "menu caché / coupé" :
-   Le menu de la ligne (Voir détails / Modifier / Supprimer) était en
-   `position: absolute`, imbriqué dans le <td> d'un tableau enveloppé par
-   un conteneur `overflow-x-auto`. Dès que le menu dépassait la zone
-   visible (dernière ligne, bord du tableau, scroll horizontal), il était
-   tronqué ou totalement invisible.
-
-   Solution : on calcule la position réelle du bouton "⋯" à l'écran
-   (getBoundingClientRect) et on rend le menu via un PORTAL React
-   (createPortal) directement dans <body>, en position `fixed`. Le menu
-   n'est donc plus soumis à l'overflow du tableau et reste toujours
-   entièrement visible, y compris sur mobile.
-*/
 
 const ACTION_MENU_PORTAL_CLASS = "doc-row-action-menu-portal"
 
-function DocumentRowMenu({ onViewDetail }) {
+function DocumentRowMenu({ onViewDetail, canView, canEdit, canDelete }) {
   const [open, setOpen] = useState(false)
   const buttonRef = useRef(null)
   const [coords, setCoords] = useState(null) // { top, left, openUpward }
@@ -517,6 +515,9 @@ function DocumentRowMenu({ onViewDetail }) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open])
 
+  // Si aucune action n'est autorisée, on n'affiche même pas le bouton "..."
+  if (!canView && !canEdit && !canDelete) return null
+
   return (
     <div className="relative inline-block">
       <button
@@ -537,20 +538,28 @@ function DocumentRowMenu({ onViewDetail }) {
             animation: "docMenuFadeIn 0.1s ease-out",
           }}
         >
-          <button
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-            onClick={() => { setOpen(false); onViewDetail() }}
-          >
-            <Eye size={16} className="text-gray-500" /> Voir détails
-          </button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors">
-            <Pencil size={16} className="text-gray-500" /> Modifier
-          </button>
-          <div className="border-t border-gray-100" />
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors">
-            <Trash2 size={16} />
-            <span className="text-[15px] font-medium">Supprimer</span>
-          </button>
+          {canView && (
+            <button
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+              onClick={() => { setOpen(false); onViewDetail() }}
+            >
+              <Eye size={16} className="text-gray-500" /> Voir détails
+            </button>
+          )}
+          {canEdit && (
+            <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors">
+              <Pencil size={16} className="text-gray-500" /> Modifier
+            </button>
+          )}
+          {canDelete && (
+            <>
+              <div className="border-t border-gray-100" />
+              <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors">
+                <Trash2 size={16} />
+                <span className="text-[15px] font-medium">Supprimer</span>
+              </button>
+            </>
+          )}
         </div>,
         document.body
       )}
@@ -566,13 +575,11 @@ function DocumentRowMenu({ onViewDetail }) {
 }
 
 /* ================= ROW ================= */
-/* Même style que le tableau Produits : lignes alternées gris clair / blanc
-   (rowIndex pair/impair) avec survol bleu clair, au lieu d'un simple trait
-   de séparation gris. */
 
 function DocumentRow({
   rowIndex, index, operation, payment, operator, operatorName,
   amount, date, time, status, proofUrl, onViewDetail,
+  canView, canEdit, canDelete,
 }) {
 
   const statusClasses =
@@ -606,7 +613,12 @@ function DocumentRow({
         <span className={`px-4 py-1 rounded-full text-xs font-medium whitespace-nowrap ${statusClasses}`}>{status}</span>
       </td>
       <td className="px-4 sm:px-6 py-3 text-center">
-        <DocumentRowMenu onViewDetail={onViewDetail} />
+        <DocumentRowMenu
+          onViewDetail={onViewDetail}
+          canView={canView}
+          canEdit={canEdit}
+          canDelete={canDelete}
+        />
       </td>
     </tr>
   )
@@ -624,11 +636,6 @@ function StatCard({ title, value, className = "" }) {
 }
 
 /* ================= PAGINATION ================= */
-/*
-   Style aligné sur le fichier "Produits" : boutons discrets (icônes seules,
-   sans bordure), libellé "Par page" masqué sur mobile, état désactivé
-   géré par une classe grisée, et affichage compact "page / totalPages".
-*/
 
 function PaginationFooter({ total, start, end, rowsPerPage, setRowsPerPage, currentPage, setCurrentPage, totalPages }) {
   const isFirstPage = currentPage <= 1

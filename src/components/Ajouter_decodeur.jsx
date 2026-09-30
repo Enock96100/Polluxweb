@@ -3,9 +3,10 @@ import { useNavigate, useParams } from "react-router-dom"
 import { PlusCircle, ChevronDown, ArrowLeft, CheckCircle, AlertCircle, X } from "lucide-react"
 import axios from "axios"
 import { getAuthData, fetchProfile } from "./auth"
+import useAuth from "../context/auth/utils"
 
-const SUBPRODUCT_API = "https://youapi.youneed.app/pollux/dev/api/products/sub-products"
-const PARABOLA_API   = "https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas"
+const SUBPRODUCT_API = "https://youapi.youneed.app/pollux/prod/api/products/sub-products"
+const PARABOLA_API   = "https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas"
 
 /* ══════════════════════════════════════════════
    SYSTÈME DE NOTIFICATION
@@ -190,6 +191,19 @@ export default function AjouterDecodeur() {
   const { id: serviceId } = useParams()
 
   const { notif, showSuccess, showError, dismiss } = useNotification()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
+
+  // SUBPRODUCT_CREATE : création légitime pour "Créer le décodeur" (POST
+  // /products/sub-products). ⚠️ À CONFIRMER : le catalogue de permissions
+  // fourni ne contient aucun code dédié à la création d'une "parabole"
+  // (/formula-canals/parabolas) — on réutilise SUBPRODUCT_CREATE comme
+  // proxy le plus proche (même écran, même logique métier que les
+  // décodeurs/sous-produits Canal+), à corriger dès qu'un vrai code existe.
+  const canCreateDecoder  = can("SUBPRODUCT_CREATE")
+  const canCreateParabole = can("SUBPRODUCT_CREATE")
 
   const [parabolas,          setParabolas]          = useState([])
   const [withParabola,       setWithParabola]       = useState(false)
@@ -317,14 +331,16 @@ export default function AjouterDecodeur() {
         <NotificationBanner notif={notif} onDismiss={dismiss} />
 
         {/* Bouton ajouter parabole */}
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="border border-[#1EA4DC] rounded-xl p-4 sm:p-5 flex items-center justify-between gap-3 w-full text-left"
-        >
-          <span className="text-sm sm:text-base font-semibold text-gray-800">Ajouter un nouveau parabole</span>
-          <PlusCircle size={24} className="text-[#1EA4DC] shrink-0" />
-        </button>
+        {canCreateParabole && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="border border-[#1EA4DC] rounded-xl p-4 sm:p-5 flex items-center justify-between gap-3 w-full text-left"
+          >
+            <span className="text-sm sm:text-base font-semibold text-gray-800">Ajouter un nouveau parabole</span>
+            <PlusCircle size={24} className="text-[#1EA4DC] shrink-0" />
+          </button>
+        )}
 
         {/* Formulaire décodeur */}
         <div className="border border-gray-200 rounded-xl p-4 sm:p-6 space-y-5">
@@ -413,13 +429,15 @@ export default function AjouterDecodeur() {
           >
             Annuler
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full sm:w-auto bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60"
-          >
-            {loading ? "Création..." : "Créer le décodeur"}
-          </button>
+          {canCreateDecoder && (
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="w-full sm:w-auto bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60"
+            >
+              {loading ? "Création..." : "Créer le décodeur"}
+            </button>
+          )}
         </div>
 
       </div>

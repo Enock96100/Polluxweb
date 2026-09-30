@@ -17,7 +17,7 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect, useCallback, useRef } from "react"
 import axios from "axios"
 
-const BASE_URL = "https://youapi.youneed.app/pollux/dev/api"
+const BASE_URL = "https://youapi.youneed.app/pollux/prod/api"
 
 function getToken() {
   return (

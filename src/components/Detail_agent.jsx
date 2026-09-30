@@ -15,15 +15,10 @@ import {
   ListChecks,
   Loader2,
 } from "lucide-react"
+import { getAuthData } from "./auth"
+import useAuth from "../context/auth/utils"
 
-const API_BASE = "https://youapi.youneed.app/pollux/dev/api"
-
-/* ================= AUTH ================= */
-function getAuthData() {
-  // ⚠️ À CONFIRMER: clé exacte utilisée dans localStorage pour le token
-  const token = localStorage.getItem("token")
-  return { token }
-}
+const API_BASE = "https://youapi.youneed.app/pollux/prod/api"
 
 /* ================= NOTIFICATIONS ================= */
 function useNotification() {
@@ -62,6 +57,10 @@ export default function DetailAgent() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { notification, notify } = useNotification()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
 
   const [activeTab, setActiveTab] = useState("infos")
   const [loading, setLoading] = useState(true)
@@ -75,6 +74,9 @@ export default function DetailAgent() {
 
     async function fetchAll() {
       setLoading(true)
+      // ✅ Utilise désormais le même getAuthData() partagé que le reste du
+      // projet (components/auth.jsx), au lieu d'une version locale
+      // redéfinie ici qui ne lisait que le token et pouvait diverger.
       const { token } = getAuthData()
       const headers = token ? { Authorization: `Bearer ${token}` } : {}
 
@@ -241,16 +243,18 @@ export default function DetailAgent() {
 
       {/* ================= CONTENU DES ONGLETS ================= */}
       {activeTab === "infos" && (
-        <InfosTab agent={agent} user={user} roles={roles} navigate={navigate} />
+        <InfosTab agent={agent} user={user} roles={roles} navigate={navigate} can={can} />
       )}
       {activeTab === "permissions" && <PermissionsTab groups={permissionGroups} />}
-      {activeTab === "statistiques" && <StatistiquesTab stats={stats} />}
+      {activeTab === "statistiques" && (
+        <StatistiquesTab stats={stats} agentId={id} navigate={navigate} can={can} />
+      )}
     </div>
   )
 }
 
 /* ================= ONGLET INFOS ================= */
-function InfosTab({ agent, user, roles, navigate }) {
+function InfosTab({ agent, user, roles, navigate, can }) {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6 space-y-4">
@@ -282,18 +286,20 @@ function InfosTab({ agent, user, roles, navigate }) {
               <tr>
                 <th className="px-4 py-3 text-left">Rôle</th>
                 <th className="px-4 py-3 text-left">Description</th>
-                <th className="px-4 py-3 text-center">Action</th>
+                {/* Colonne Action affichée seulement si le lien de détail
+                    a une chance d'être visible (permission ROLE_READ) */}
+                {can("ROLE_READ") && <th className="px-4 py-3 text-center">Action</th>}
               </tr>
             </thead>
 
             <tbody>
               {roles.map((role) => (
-                <RoleRow key={role.id} role={role} navigate={navigate} />
+                <RoleRow key={role.id} role={role} navigate={navigate} can={can} />
               ))}
 
               {roles.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="text-center text-gray-400 py-8">
+                  <td colSpan={can("ROLE_READ") ? 3 : 2} className="text-center text-gray-400 py-8">
                     Aucun rôle assigné à cet agent
                   </td>
                 </tr>
@@ -305,7 +311,7 @@ function InfosTab({ agent, user, roles, navigate }) {
         {/* Vue cartes (mobile) */}
         <div className="sm:hidden space-y-3">
           {roles.map((role) => (
-            <RoleCard key={role.id} role={role} navigate={navigate} />
+            <RoleCard key={role.id} role={role} navigate={navigate} can={can} />
           ))}
 
           {roles.length === 0 && (
@@ -329,7 +335,11 @@ function InfoField({ label, value }) {
 }
 
 /* ================= ROLE ROW (table desktop) ================= */
-function RoleRow({ role, navigate }) {
+function RoleRow({ role, navigate, can }) {
+  // ROLE_READ : consulter le détail d'un rôle (page /detail_role/:id).
+  // Sans cette permission, le nom du rôle reste visible mais non cliquable.
+  const canViewRole = can("ROLE_READ")
+
   return (
     <tr className="hover:bg-gray-50">
       <td className="px-4 py-4">
@@ -343,26 +353,27 @@ function RoleRow({ role, navigate }) {
 
       <td className="px-4 py-4 text-gray-500 max-w-xs">{role.description || "-"}</td>
 
-      <td className="px-4 py-4 text-center">
-        <button
-          onClick={() => navigate(`/detail_role/${role.id}`)}
-          className="inline-flex items-center gap-1 text-[#1EA4DC] hover:underline text-sm font-medium"
-        >
-          Voir détails
-          <ChevronRight size={14} />
-        </button>
-      </td>
+      {canViewRole && (
+        <td className="px-4 py-4 text-center">
+          <button
+            onClick={() => navigate(`/detail_role/${role.id}`)}
+            className="inline-flex items-center gap-1 text-[#1EA4DC] hover:underline text-sm font-medium"
+          >
+            Voir détails
+            <ChevronRight size={14} />
+          </button>
+        </td>
+      )}
     </tr>
   )
 }
 
 /* ================= ROLE CARD (mobile) ================= */
-function RoleCard({ role, navigate }) {
-  return (
-    <button
-      onClick={() => navigate(`/detail_role/${role.id}`)}
-      className="w-full text-left border border-gray-100 rounded-xl p-4 flex items-center gap-3 hover:bg-gray-50"
-    >
+function RoleCard({ role, navigate, can }) {
+  const canViewRole = can("ROLE_READ")
+
+  const content = (
+    <>
       <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
         <Users size={16} className="text-[#1EA4DC]" />
       </div>
@@ -370,7 +381,24 @@ function RoleCard({ role, navigate }) {
         <p className="font-medium text-sm truncate">{role.libelle || role.name}</p>
         <p className="text-gray-500 text-xs truncate">{role.description || "-"}</p>
       </div>
-      <ChevronRight size={16} className="text-[#1EA4DC] shrink-0" />
+      {canViewRole && <ChevronRight size={16} className="text-[#1EA4DC] shrink-0" />}
+    </>
+  )
+
+  if (!canViewRole) {
+    return (
+      <div className="w-full text-left border border-gray-100 rounded-xl p-4 flex items-center gap-3">
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => navigate(`/detail_role/${role.id}`)}
+      className="w-full text-left border border-gray-100 rounded-xl p-4 flex items-center gap-3 hover:bg-gray-50"
+    >
+      {content}
     </button>
   )
 }
@@ -474,7 +502,7 @@ function PermissionGroup({ group }) {
 }
 
 /* ================= ONGLET STATISTIQUES ================= */
-function StatistiquesTab({ stats }) {
+function StatistiquesTab({ stats, agentId, navigate, can }) {
   const s = stats || {}
   const cards = [
     {
@@ -506,6 +534,20 @@ function StatistiquesTab({ stats }) {
       color: "text-green-600",
     },
   ]
+
+  // ⚠️ À CONFIRMER : route exacte d'une vue "opérations de cet agent".
+  // En l'absence d'un endpoint/route dédié confirmé, on redirige vers
+  // Fil_validation.jsx (le tableau général des opérations) — à remplacer
+  // par une route filtrée par agentId dès qu'elle sera confirmée côté
+  // backend/routing (ex: /fil_validation?agentId=...).
+  const handleViewOperations = () => {
+    navigate("/fil_validation", { state: { agentId } })
+  }
+
+  // Le bouton n'a de sens que si l'utilisateur connecté a le droit de
+  // consulter des opérations (admin : toutes ; agent : au minimum les
+  // siennes).
+  const canViewOperations = can("OPERATION_READ_ALL") || can("OPERATION_READ_OWN")
 
   return (
     <div className="space-y-4">
@@ -543,10 +585,15 @@ function StatistiquesTab({ stats }) {
         </div>
       )}
 
-      <button className="w-full flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-3 rounded-xl text-sm font-medium">
-        <ListChecks size={18} />
-        Voir Opérations
-      </button>
+      {canViewOperations && (
+        <button
+          onClick={handleViewOperations}
+          className="w-full flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-3 rounded-xl text-sm font-medium hover:bg-[#1a8bbd] transition-colors"
+        >
+          <ListChecks size={18} />
+          Voir Opérations
+        </button>
+      )}
     </div>
   )
 }

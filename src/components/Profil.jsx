@@ -19,27 +19,19 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getAuthData, fetchProfile } from "./auth"; // ⚠️ À CONFIRMER : chemin exact du module auth
+import useAuth from "../context/auth/utils";
 
-const API_BASE_URL = "https://youapi.youneed.app/pollux/dev/api"; // ✅ CONFIRMÉ
+const API_BASE_URL = "https://youapi.youneed.app/pollux/prod/api"; // CONFIRMÉ
 
-// ✅ AJOUTÉ : n'ajoute le champ au FormData que s'il a une valeur non vide.
-// Beaucoup de validateurs backend (@IsOptional() combiné à @IsDateString(),
-// @IsEmail(), etc.) acceptent l'ABSENCE du champ mais rejettent une chaîne
-// vide "". Comme photoFile/logoFile étaient déjà conditionnés correctement,
-// on applique la même logique à tous les champs facultatifs pour éviter
-// qu'un champ vide (ex: birthDate jamais renseigné) fasse échouer toute la
-// requête de mise à jour, même quand seul un AUTRE champ a été modifié.
+// AJOUTÉ : n'ajoute le champ au FormData que s'il a une valeur non vide.
 function appendIfNotEmpty(formData, key, value) {
   if (value !== null && value !== undefined && String(value).trim() !== "") {
     formData.append(key, value);
   }
 }
 
-// ✅ AJOUTÉ : extrait un message d'erreur lisible depuis une réponse API en
-// erreur, quelle que soit sa forme exacte (message simple, tableau
-// d'erreurs de validation, ou objet unique { field, message, type } comme
-// celui renvoyé par POST /auth/change-password). Évite d'afficher
-// "[object Object]" ou "undefined" à l'utilisateur.
+// AJOUTÉ : extrait un message d'erreur lisible depuis une réponse API en
+// erreur, quelle que soit sa forme exacte.
 function extractErrorMessage(errorBody, fallback) {
   if (!errorBody) return fallback;
   if (typeof errorBody === "string") return errorBody || fallback;
@@ -53,7 +45,6 @@ function extractErrorMessage(errorBody, fallback) {
       .join(" ");
   }
   if (errorBody.errors?.message) return errorBody.errors.message;
-  // ✅ Cas confirmé par l'API : objet unique { field, message, type }
   if (errorBody.field && errorBody.message) return errorBody.message;
   if (errorBody.error && typeof errorBody.error === "string") return errorBody.error;
   return fallback;
@@ -87,12 +78,6 @@ function Section({ icon: Icon, title, action, children }) {
   );
 }
 
-// ✅ AJOUTÉ : notification d'erreur homogène (icône + message + bouton
-// "Réessayer" optionnel), sur le même modèle que CommissionAd.jsx /
-// Detail_com_comm.jsx, pour uniformiser le feedback d'erreur dans toute
-// l'application. `onRetry` est facultatif : si absent, le bouton n'est
-// pas affiché (ex : erreurs de formulaire dans une modale déjà munie
-// d'un bouton "Enregistrer").
 function ErrorBanner({ message, onRetry, className = "" }) {
   if (!message) return null;
   return (
@@ -116,9 +101,6 @@ function ErrorBanner({ message, onRetry, className = "" }) {
   );
 }
 
-// ✅ AJOUTÉ : notification de succès homogène (même gabarit que
-// ErrorBanner, en vert) pour confirmer visuellement qu'une mise à jour a
-// bien été enregistrée.
 function SuccessBanner({ message, className = "" }) {
   if (!message) return null;
   return (
@@ -131,11 +113,6 @@ function SuccessBanner({ message, className = "" }) {
   );
 }
 
-// ✅ AJOUTÉ : champ mot de passe partagé pour la modale "Changer le mot de
-// passe". Même gabarit que les autres champs du formulaire (label au-dessus,
-// input arrondi) — sans icône de cadenas devant le libellé, contrairement à
-// la maquette — mais avec l'icône "œil" conservée à droite pour
-// afficher/masquer la saisie, comme demandé.
 function PasswordField({ label, value, onChange, visible, onToggleVisible, autoComplete }) {
   return (
     <div>
@@ -162,14 +139,25 @@ function PasswordField({ label, value, onChange, visible, onToggleVisible, autoC
 }
 
 export default function Profile() {
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  // userType/userInfo viennent du contexte auth déjà chargé (Provider.jsx) :
+  // userInfo pointe vers l'owner en mode compagnie, ou vers le user agent
+  // en mode agent — exactement ce qu'il faut pour afficher "sa propre"
+  // identité, quel que soit le rôle connecté.
+  const { userType, userInfo: authUserInfo, can } = useAuth();
+
+  // MAIN_COMPANY_MANAGEMENT : modifier les informations de l'entreprise.
+  // Éditer l'entreprise reste une action de compagnie/admin, pas une
+  // information personnelle — un agent ne doit pas voir le bouton crayon.
+  const canEditCompany = can("MAIN_COMPANY_UPDATE");
+
   const [pushNotifications, setPushNotifications] = useState(true);
   const [companyData, setCompanyData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ✅ AJOUTÉ : message de succès affiché après une mise à jour réussie
-  // (informations personnelles, entreprise ou mot de passe), disparaît
-  // automatiquement.
   const [successMessage, setSuccessMessage] = useState(null);
 
   useEffect(() => {
@@ -207,9 +195,6 @@ export default function Profile() {
   const [companyError, setCompanyError] = useState(null);
 
   // ---- Modal "Changer le mot de passe" ----
-  // ✅ AJOUTÉ : état du formulaire (mot de passe actuel / nouveau / confirmation),
-  // avec un état de visibilité indépendant par champ (comme sur la maquette,
-  // chaque champ a sa propre icône "œil").
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     oldPassword: "",
@@ -224,14 +209,19 @@ export default function Profile() {
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [passwordError, setPasswordError] = useState(null);
 
+  //  Identité personnelle affichée : l'owner de la compagnie pour une
+  // compagnie, ou l'utilisateur agent lui-même pour un agent. On ne se
+  // base plus uniquement sur companyData?.owner, qui n'a de sens que
+  // côté compagnie.
   const owner = companyData?.owner;
+  const person = userType === "agent" ? authUserInfo : owner;
 
   // Résout dynamiquement le companyId : d'abord via getAuthData(), sinon via fetchProfile()
   const resolveCompanyId = async () => {
     let { companyId } = getAuthData();
 
     if (!companyId) {
-      const profile = await fetchProfile(); // ⚠️ À CONFIRMER : fetchProfile() sans paramètre retourne bien { company: { id } } ?
+      const profile = await fetchProfile();
       if (!profile) throw new Error("Impossible de récupérer le profil");
       companyId = profile?.company?.id;
     }
@@ -240,7 +230,7 @@ export default function Profile() {
     return companyId;
   };
 
-  // ✅ CONFIRMÉ : GET /main-companies/:id
+  //  CONFIRMÉ : GET /main-companies/:id
   const loadProfile = async () => {
     setLoading(true);
     setError(null);
@@ -283,7 +273,7 @@ export default function Profile() {
     loadProfile();
   }, []);
 
-  // ⚠️ À CONFIRMER : mécanisme de déconnexion exact (existe-t-il une fonction logout dans ./auth ?)
+  //  À CONFIRMER : mécanisme de déconnexion exact (existe-t-il une fonction logout dans ./auth ?)
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("companyId");
@@ -293,12 +283,12 @@ export default function Profile() {
   const openPersonalModal = () => {
     setPersonalError(null);
     setPersonalForm({
-      firstName: owner?.firstName || "",
-      lastName: owner?.lastName || "",
-      phone: owner?.phone || "",
-      city: owner?.city || "",
-      country: owner?.country || "",
-      birthDate: owner?.birthDate ? owner.birthDate.slice(0, 10) : "",
+      firstName: person?.firstName || "",
+      lastName: person?.lastName || "",
+      phone: person?.phone || "",
+      city: person?.city || "",
+      country: person?.country || "",
+      birthDate: person?.birthDate ? person.birthDate.slice(0, 10) : "",
       photoFile: null,
     });
     setShowPersonalModal(true);
@@ -318,9 +308,6 @@ export default function Profile() {
     setShowCompanyModal(true);
   };
 
-  // ✅ AJOUTÉ : ouverture de la modale "Changer le mot de passe" — réinitialise
-  // systématiquement le formulaire et les erreurs pour ne jamais réafficher
-  // une saisie ou une erreur d'une précédente tentative.
   const openPasswordModal = () => {
     setPasswordError(null);
     setPasswordForm({ oldPassword: "", newPassword: "", confirmPassword: "" });
@@ -332,15 +319,11 @@ export default function Profile() {
     setPasswordVisibility((prev) => ({ ...prev, [field]: !prev[field] }));
   };
 
-  // ✅ CONFIRMÉ : PUT /auth/profile (multipart/form-data)
-  // ✅ CORRIGÉ : les champs optionnels (phone, city, country, birthDate)
-  // n'étaient auparavant JAMAIS omis du FormData même quand ils étaient
-  // vides ("") — ce qui faisait échouer la validation côté backend (un
-  // champ optionnel accepte l'absence de valeur, pas une chaîne vide,
-  // typiquement pour birthDate en format date). Résultat : la mise à jour
-  // échouait systématiquement dès que l'un de ces champs n'était pas
-  // renseigné, même si seul un autre champ (ex: firstName) avait été
-  // modifié. On utilise désormais appendIfNotEmpty() pour ces champs.
+  //  CONFIRMÉ : PUT /auth/profile (multipart/form-data) — applicable à
+  // n'importe quel compte authentifié (compagnie ou agent), puisqu'il
+  // modifie le compte de l'utilisateur connecté lui-même. Aucune
+  // permission à vérifier ici : chacun peut toujours modifier ses propres
+  // informations personnelles.
   const handlePersonalUpdate = async (e) => {
     e.preventDefault();
     setPersonalSubmitting(true);
@@ -350,10 +333,8 @@ export default function Profile() {
       if (!token) throw new Error("Token manquant");
 
       const formData = new FormData();
-      // Champs obligatoires : toujours envoyés
       formData.append("firstName", personalForm.firstName);
       formData.append("lastName", personalForm.lastName);
-      // Champs optionnels : envoyés uniquement s'ils ont une valeur
       appendIfNotEmpty(formData, "phone", personalForm.phone);
       appendIfNotEmpty(formData, "city", personalForm.city);
       appendIfNotEmpty(formData, "country", personalForm.country);
@@ -362,7 +343,6 @@ export default function Profile() {
         formData.append("photo", personalForm.photoFile);
       }
 
-      // 🔍 DEBUG : contenu envoyé au serveur
       console.log("[PUT /auth/profile] payload envoyé :");
       for (const [key, value] of formData.entries()) {
         console.log(" -", key, ":", value);
@@ -373,7 +353,6 @@ export default function Profile() {
         headers: {
           accept: "application/json",
           Authorization: `Bearer ${token}`,
-          // Ne pas définir Content-Type manuellement : le navigateur ajoute la boundary multipart automatiquement
         },
         body: formData,
       });
@@ -409,23 +388,7 @@ export default function Profile() {
     }
   };
 
-  // ✅ CONFIRMÉ : PUT /main-companies/:id
-  //
-  // 🐛 BUG BACKEND IDENTIFIÉ (2026-08-13) : quand la requête est envoyée en
-  // multipart/form-data, le champ `isActive` arrive côté serveur comme une
-  // CHAÎNE ("true"/"false"), puisque FormData ne transporte que des
-  // chaînes. Le service `main_company.service.ts` (ligne ~212) transmet
-  // cette chaîne telle quelle à `prisma.mainCompany.update()`, qui attend
-  // un vrai booléen → PrismaClientValidationError → 500 :
-  //   "Argument `isActive`: Invalid value provided. Expected Boolean or
-  //   BoolFieldUpdateOperationsInput, provided String."
-  // Le fix propre est côté backend (caster isActive en boolean avant
-  // l'update, ou @Transform sur le DTO). EN ATTENDANT ce fix, on contourne
-  // le problème ici : si aucun logo n'est envoyé, on utilise du JSON
-  // classique (Content-Type: application/json) au lieu du multipart, ce
-  // qui préserve le vrai type booléen de `isActive`. Si un logo EST
-  // envoyé, on est obligés de repasser en multipart (upload de fichier
-  // oblige) et le bug reviendra tant que le backend n'est pas corrigé.
+  //  CONFIRMÉ : PUT /main-companies/:id
   const handleCompanyUpdate = async (e) => {
     e.preventDefault();
     setCompanySubmitting(true);
@@ -439,9 +402,6 @@ export default function Profile() {
       let response;
 
       if (companyForm.logoFile) {
-        // Un logo est fourni : upload de fichier obligatoire -> multipart.
-        // ⚠️ Le bug `isActive` (voir commentaire ci-dessus) peut se
-        // reproduire ici tant que le backend n'est pas corrigé.
         const formData = new FormData();
         formData.append("name", companyForm.name);
         formData.append("email", companyForm.email);
@@ -451,7 +411,6 @@ export default function Profile() {
         formData.append("isActive", companyForm.isActive ? "true" : "false");
         formData.append("logo", companyForm.logoFile);
 
-        // 🔍 DEBUG : contenu envoyé au serveur
         console.log(`[PUT /main-companies/${companyId}] payload envoyé (multipart) :`);
         for (const [key, value] of formData.entries()) {
           console.log(" -", key, ":", value);
@@ -462,13 +421,10 @@ export default function Profile() {
           headers: {
             accept: "application/json",
             Authorization: `Bearer ${token}`,
-            // Ne pas définir Content-Type manuellement : le navigateur ajoute la boundary multipart automatiquement
           },
           body: formData,
         });
       } else {
-        // Pas de logo à uploader : on envoie du JSON pour préserver le
-        // vrai type booléen de isActive et éviter le bug backend.
         const payload = {
           name: companyForm.name,
           email: companyForm.email,
@@ -478,7 +434,6 @@ export default function Profile() {
         if (companyForm.address?.trim()) payload.address = companyForm.address;
         if (companyForm.description?.trim()) payload.description = companyForm.description;
 
-        // 🔍 DEBUG : contenu envoyé au serveur
         console.log(`[PUT /main-companies/${companyId}] payload envoyé (JSON) :`, payload);
 
         response = await fetch(`${API_BASE_URL}/main-companies/${companyId}`, {
@@ -523,22 +478,7 @@ export default function Profile() {
     }
   };
 
-  // ✅ CONFIRMÉ (curl testé) : POST /auth/change-password (JSON, pas
-  // multipart) attend { "oldPassword": "string", "newPassword": "string" }.
-  // ✅ CORRIGÉ / AJOUTÉ :
-  //   - Validation cliente AVANT l'appel réseau : le backend rejette tout
-  //     newPassword de moins de 8 caractères (confirmé par l'erreur
-  //     { field: "newPassword", message: "Le nouveau mot de passe doit
-  //     contenir au moins 8 caractères", type: "string.min" }) — on
-  //     reproduit ce message côté UI pour ne pas dépendre d'un aller-retour
-  //     réseau pour un cas aussi simple à détecter localement.
-  //   - Vérification que "confirmPassword" correspond bien à "newPassword"
-  //     avant d'envoyer la requête (le champ confirmPassword n'existe pas
-  //     côté API : il ne sert qu'à sécuriser la saisie côté UI et n'est
-  //     jamais envoyé dans le body).
-  //   - Les erreurs API sont normalisées via extractErrorMessage() pour
-  //     gérer aussi bien un message simple qu'un objet unique
-  //     { field, message, type } comme celui renvoyé par cet endpoint.
+  //  CONFIRMÉ (curl testé) : POST /auth/change-password
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordError(null);
@@ -590,8 +530,6 @@ export default function Profile() {
         );
       }
 
-      // ⚠️ À CONFIRMER : la réponse suit-elle le même gabarit { success, data }
-      // que les autres endpoints ? On reste tolérant si "success" est absent.
       const result = await response.json().catch(() => null);
       if (result && result.success === false) {
         throw new Error(extractErrorMessage(result, "Échec du changement de mot de passe"));
@@ -608,17 +546,16 @@ export default function Profile() {
   };
 
   const fullName =
-    [owner?.firstName, owner?.lastName].filter(Boolean).join(" ") ||
+    [person?.firstName, person?.lastName].filter(Boolean).join(" ") ||
     "Utilisateur";
 
   const getInitials = () => {
-    const first = owner?.firstName?.[0] || "";
-    const last = owner?.lastName?.[0] || "";
+    const first = person?.firstName?.[0] || "";
+    const last = person?.lastName?.[0] || "";
     if (!first && !last) return "U";
     return (first + last).toUpperCase();
   };
 
-  // ⚠️ À CONFIRMER : basé sur la création de l'entreprise, à ajuster si besoin
   const memberSince = companyData?.createdAt
     ? new Date(companyData.createdAt).toLocaleDateString("fr-FR", {
         month: "long",
@@ -647,9 +584,6 @@ export default function Profile() {
         </p>
       </div>
 
-      {/* ✅ CORRIGÉ : notification homogène (icône + bouton Réessayer),
-          alignée sur le modèle utilisé dans CommissionAd.jsx /
-          Detail_com_comm.jsx. Le bouton relance loadProfile(). */}
       <ErrorBanner message={error} onRetry={loadProfile} />
       <SuccessBanner message={successMessage} />
 
@@ -678,7 +612,7 @@ export default function Profile() {
 
             <h2 className="mt-5 text-xl sm:text-2xl font-bold text-white break-words">{fullName}</h2>
             <p className="mt-1 text-white/70 text-sm break-words">
-              {companyData?.name || "Entreprise Principale"}
+              {userType === "agent" ? "Agent" : (companyData?.name || "Entreprise Principale")}
             </p>
 
             <span className="inline-flex items-center gap-1.5 mt-5 px-4 py-2 rounded-full text-xs sm:text-sm font-semibold text-white bg-white/15 border border-white/25">
@@ -698,8 +632,6 @@ export default function Profile() {
               <h3 className="text-base sm:text-lg font-bold">Sécurité</h3>
             </div>
 
-            {/* ✅ CORRIGÉ : ouvre désormais la modale "Changer le mot de
-                passe" (auparavant onClick={() => {}}, sans effet). */}
             <button
               type="button"
               onClick={openPasswordModal}
@@ -740,7 +672,8 @@ export default function Profile() {
 
         {/* ---------- Colonne droite : informations, entreprise, préférences ---------- */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          {/* Informations personnelles */}
+          {/* Informations personnelles — toujours modifiables par le
+              titulaire du compte, compagnie ou agent */}
           <Section
             icon={User}
             title="Informations personnelles"
@@ -757,26 +690,32 @@ export default function Profile() {
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
               <InfoRow label="Nom complet" value={fullName} />
-              <InfoRow label="Email" value={owner?.email} />
-              <InfoRow label="Téléphone" value={owner?.phone} />
-              <InfoRow label="Ville" value={owner?.city} />
-              <InfoRow label="Pays" value={owner?.country} />
+              <InfoRow label="Email" value={person?.email} />
+              <InfoRow label="Téléphone" value={person?.phone} />
+              <InfoRow label="Ville" value={person?.city} />
+              <InfoRow label="Pays" value={person?.country} />
             </div>
           </Section>
 
-          {/* Entreprise */}
+          {/* Entreprise — masquée entièrement pour un agent (ce sont des
+              informations propres à la compagnie, pas à son compte) ;
+              modifiable uniquement avec la permission MAIN_COMPANY_UPDATE
+              côté compagnie. */}
+          {userType !== "agent" && (
           <Section
             icon={Building2}
             title="Entreprise"
             action={
-              <button
-                type="button"
-                onClick={openCompanyModal}
-                className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 shrink-0"
-                aria-label="Modifier l'entreprise"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
+              canEditCompany ? (
+                <button
+                  type="button"
+                  onClick={openCompanyModal}
+                  className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 shrink-0"
+                  aria-label="Modifier l'entreprise"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              ) : null
             }
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
@@ -805,6 +744,7 @@ export default function Profile() {
               </span>
             </div>
           </Section>
+          )}
 
           {/* Préférences */}
           <section className="bg-white rounded-2xl border border-gray-200 px-4 sm:px-6 py-5 sm:py-6">
@@ -859,7 +799,6 @@ export default function Profile() {
               Modifier mes informations personnelles
             </h3>
 
-            {/* ✅ CORRIGÉ : même gabarit de notification que partout ailleurs */}
             <ErrorBanner message={personalError} className="mb-4" />
 
             <form onSubmit={handlePersonalUpdate} className="space-y-4">
@@ -1008,7 +947,6 @@ export default function Profile() {
               Modifier les informations de l'entreprise
             </h3>
 
-            {/* ✅ CORRIGÉ : même gabarit de notification que partout ailleurs */}
             <ErrorBanner message={companyError} className="mb-4" />
 
             <form onSubmit={handleCompanyUpdate} className="space-y-4">
@@ -1160,13 +1098,6 @@ export default function Profile() {
       )}
 
       {/* ================= MODAL : Changer le mot de passe ================= */}
-      {/* ✅ AJOUTÉ : formulaire déclenché par "Modifier mot de passe" dans la
-          section Sécurité. Même gabarit que les autres modales (fond
-          assombri, carte blanche arrondie, notification d'erreur en haut,
-          boutons Annuler / valider en bas) — sans icône de cadenas devant
-          chaque libellé, mais avec l'icône "œil" conservée sur chaque champ
-          pour afficher/masquer la saisie. Appelle POST /auth/change-password
-          avec { oldPassword, newPassword }. */}
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">

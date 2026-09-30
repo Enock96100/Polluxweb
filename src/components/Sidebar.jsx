@@ -16,6 +16,16 @@ import {
   KeyRound,
 } from "lucide-react"
 import logo from "../assets/logo.png"
+import useAuth from "../context/auth/utils"
+
+//  mêmes valeurs que OPERATOR_TYPE_LABELS dans Header.jsx, pour rester
+// cohérent avec le badge déjà affiché là-bas.
+const OPERATOR_TYPE_LABELS = {
+  MAIN_COMPANY: "COMPAGNIE",
+  ADMIN_AGENT: "AGENT",
+  DISTRIBUTOR: "DISTRIBUTEUR",
+  MERCHANT: "COMMERÇANT",
+}
 
 export default function Sidebar() {
   // Contrôle l'ouverture de la sidebar en mode mobile/tablette (< lg).
@@ -23,7 +33,15 @@ export default function Sidebar() {
   // n'a aucun effet grâce aux classes `lg:translate-x-0` / `lg:hidden`.
   const [isOpen, setIsOpen] = useState(false)
 
+  const { userInfo } = useAuth()
+
   const closeSidebar = () => setIsOpen(false)
+
+  // Badge dynamique : "COMPAGNIE" pour le owner, "AGENT" pour un agent, etc.
+  // Fallback sur "ADMINISTRATEUR" tant que userInfo n'est pas encore chargé
+  // (évite un flash vide pendant le chargement initial du profil).
+  const roleLabel =
+    OPERATOR_TYPE_LABELS[userInfo?.userType] || "ADMINISTRATEUR"
 
   return (
     <>
@@ -67,12 +85,14 @@ export default function Sidebar() {
           />
         </div>
 
-        {/* Admin */}
+        {/* Badge de rôle — dynamique selon compagnie/agent/distributeur/commerçant 
         <button className="border border-white rounded-xl px-4 sm:px-6 py-2 mb-8 sm:mb-10 text-xs sm:text-sm font-semibold whitespace-nowrap">
-          ADMINISTRATEUR
-        </button>
+          {roleLabel}
+        </button>*/}
 
-        {/* Menu */}
+        {/* Menu — identique pour tous les rôles ; les actions non autorisées
+            sont filtrées côté backend (403), voir usePermission/can() côté
+            pages concernées si un masquage visuel devient nécessaire plus tard */}
         <nav className="w-full px-6 sm:px-10 space-y-5 sm:space-y-6 text-sm">
           <MenuLink to="/dashboard" icon={<LayoutDashboard size={18} />} label="Tableau de bord" onClick={closeSidebar} />
           <MenuLink to="/produits" icon={<Package size={18} />} label="Produits" onClick={closeSidebar} />

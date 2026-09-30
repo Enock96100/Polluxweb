@@ -58,7 +58,7 @@ export default function DetailOperation({ operationId: directId }) {
     try {
       setLoading(true)
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/operations/${resolvedId}`,
+        `https://youapi.youneed.app/pollux/prod/api/operations/${resolvedId}`,
         {
           headers: {
             accept: "application/json",

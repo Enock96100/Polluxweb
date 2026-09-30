@@ -31,7 +31,7 @@ export default function DetailCartePrepayee() {
         const token = localStorage.getItem("token")
 
         const response = await axios.get(
-          `https://youapi.youneed.app/pollux/dev/api/prepaid-cards/${id}`,
+          `https://youapi.youneed.app/pollux/prod/api/prepaid-cards/${id}`,
           {
             headers: {
               accept: "application/json",

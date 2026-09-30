@@ -14,7 +14,6 @@ import {
   Store,
   Building2,
   ArrowLeft,
-  RefreshCw,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
@@ -30,19 +29,18 @@ import { getAuthData, fetchProfile } from "./auth"
    ══════════════════════════════════════════════ */
 
 /* ✅ CONFIRMÉ — listes des opérateurs */
-const MERCHANTS_API    = "https://youapi.youneed.app/pollux/dev/api/merchants/companies"
-const DISTRIBUTORS_API = "https://youapi.youneed.app/pollux/dev/api/distributors/by-company"
-const AGENTS_API       = "https://youapi.youneed.app/pollux/dev/api/admin-agents/company"
-/* ⚠️ À CONFIRMER : aucun curl fourni pour l'entreprise principale (structure déduite d'un
-   exemple Swagger). En cas d'échec, on retombe sur fetchProfile() déjà utilisé ailleurs. */
-const COMPANY_API      = "https://youapi.youneed.app/pollux/dev/api/companies"
+const MERCHANTS_API    = "https://youapi.youneed.app/pollux/prod/api/merchants/companies"
+const DISTRIBUTORS_API = "https://youapi.youneed.app/pollux/prod/api/distributors/by-company"
+const AGENTS_API       = "https://youapi.youneed.app/pollux/prod/api/admin-agents/company"
+/* Entreprise Principale : plus d'appel dédié — voir fetchProfile() plus bas,
+   déjà confirmé et utilisé ailleurs dans l'app, chargé directement sans appel
+   réseau supplémentaire. */
 
 /* ✅ CONFIRMÉ — actions PIN (endpoints communs à tous les types d'opérateurs) */
-const PIN_RESET_API   = "https://youapi.youneed.app/pollux/dev/api/pin/reset"
-const PIN_UNLOCK_API  = "https://youapi.youneed.app/pollux/dev/api/pin/unlock"
-const PIN_HISTORY_API = "https://youapi.youneed.app/pollux/dev/api/pin/history"
-/* ⚠️ À CONFIRMER : aucun endpoint de verrouillage (lock) manuel fourni pour le moment.
-   L'action "Verrouiller le PIN" reste donc optimiste/locale en attendant. */
+const PIN_RESET_API   = "https://youapi.youneed.app/pollux/prod/api/pin/reset"
+const PIN_UNLOCK_API  = "https://youapi.youneed.app/pollux/prod/api/pin/unlock"
+const PIN_HISTORY_API = "https://youapi.youneed.app/pollux/prod/api/pin/history"
+
 
 /* ✅ CONFIRMÉ : valeur "operatorType" attendue par /pin/reset et /pin/unlock,
    déduite du champ user.userType renvoyé par chaque liste d'opérateurs. */
@@ -134,15 +132,16 @@ function normalizeAgent(item) {
   }
 }
 
-/* ⚠️ À CONFIRMER : GET /companies/{companyId} */
 function normalizeCompany(company) {
   if (!company) return []
+  const owner = company.owner || {}
+  const nom = [owner.firstName, owner.lastName].filter(Boolean).join(" ") || "Utilisateur"
   return [{
     id:               company.id,
-    nom:              company.name || "-",
-    role:             "Entreprise Principale",
-    email:            company.email,
-    phone:            company.phone,
+    nom,
+    role:             company.name || "Entreprise Principale",
+    email:            owner.email || company.email || "",
+    phone:            owner.phone || company.phone,
     createdAt:        company.createdAt,
     pinAttempts:      company.pinAttempts,
     pinMustChange:    company.pinMustChange,
@@ -323,10 +322,6 @@ function formatDateTime(value) {
   } catch { return "-" }
 }
 
-/* Les API NestJS renvoient parfois "message" sous forme de tableau (erreurs de validation
-   champ par champ), ou un message générique accompagné d'un tableau "errors" détaillé
-   (format observé ici : { success:false, message:"Erreur de validation", errors:[...] }).
-   On normalise pour toujours afficher le détail le plus utile dans la notification. */
 function extractErrorMessage(err, fallback) {
   const data = err?.response?.data
   if (!data) return err?.message || fallback
@@ -410,7 +405,7 @@ function ApercuModal({ user, typeConfig, operateurLabel, onClose }) {
 
 /* ══════════════════════════════════════════════
    MODAL — HISTORIQUE (dynamique)
-   ✅ CONFIRMÉ : GET /pin/history/{id}?page=1&limit=20
+    CONFIRMÉ : GET /pin/history/{id}?page=1&limit=20
    ══════════════════════════════════════════════ */
 function HistoriqueModal({ user, typeConfig, operateurLabel, onClose }) {
   const [entries, setEntries] = useState([])
@@ -446,7 +441,7 @@ function HistoriqueModal({ user, typeConfig, operateurLabel, onClose }) {
     <Modal>
       <div className="flex items-center justify-between p-4 sm:p-6 pb-3 sm:pb-4 border-b border-gray-100">
         <div>
-          <h2 className="text-base sm:text-lg font-semibold">Historique — {user.nom}</h2>
+          <h2 className="text-base sm:text-lg font-semibold">Historique :{user.nom}</h2>
           <p className="text-xs sm:text-sm text-gray-500">{operateurLabel}</p>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 flex-shrink-0"><X size={20} /></button>
@@ -514,7 +509,7 @@ function HistoriqueModal({ user, typeConfig, operateurLabel, onClose }) {
 
 /* ══════════════════════════════════════════════
    MODAL — RÉINITIALISER LE PIN
-   ✅ CONFIRMÉ : POST /pin/reset/{id}  body: { operatorType }
+    CONFIRMÉ : POST /pin/reset/{id}  body: { operatorType }
    ══════════════════════════════════════════════ */
 function ResetPinModal({ user, onClose, onConfirm, submitting }) {
   const [raison, setRaison] = useState("")
@@ -571,7 +566,7 @@ function ResetPinModal({ user, onClose, onConfirm, submitting }) {
           Un PIN temporaire sera généré et envoyé à <strong>{user.nom}</strong>.
         </p>
 
-        {/* ⚠️ La "raison" n'est pas encore acceptée par l'endpoint /pin/reset — champ conservé
+        {/*  La "raison" n'est pas encore acceptée par l'endpoint /pin/reset — champ conservé
             côté UI pour cohérence visuelle, non transmis tant que ce n'est pas confirmé. */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">Raison (optionnel)</label>
@@ -607,8 +602,8 @@ function ResetPinModal({ user, onClose, onConfirm, submitting }) {
 
 /* ══════════════════════════════════════════════
    MODAL — VERROUILLER / DÉVERROUILLER
-   ✅ CONFIRMÉ (déverrouiller) : POST /pin/unlock/{id}  body: { operatorType }
-   ⚠️ À CONFIRMER (verrouiller) : aucun endpoint fourni, action locale/optimiste
+    CONFIRMÉ (déverrouiller) : POST /pin/unlock/{id}  body: { operatorType }
+    À CONFIRMER (verrouiller) : aucun endpoint fourni, action locale/optimiste
    ══════════════════════════════════════════════ */
 function LockPinModal({ user, onClose, onConfirm, submitting }) {
   const [raison, setRaison] = useState("")
@@ -820,13 +815,11 @@ export default function Detail_operateur() {
         const res = await axios.get(`${AGENTS_API}/${companyId}`, { headers, params })
         setUsers((res.data?.data || []).map(normalizeAgent))
       } else if (id === "entreprise-principale") {
-        try {
-          const res = await axios.get(`${COMPANY_API}/${companyId}`, { headers }) // ⚠️ endpoint non confirmé
-          setUsers(normalizeCompany(res.data?.data))
-        } catch {
-          const profile = await fetchProfile()
-          setUsers(normalizeCompany(profile?.company))
-        }
+        // On connaît déjà companyId : fetchProfile() (déjà confirmé, déjà utilisé
+        // ailleurs dans l'app) suffit pour afficher directement le nom/email du
+        // propriétaire, sans appel réseau supplémentaire.
+        const profile = await fetchProfile()
+        setUsers(normalizeCompany(profile?.company))
       } else {
         setUsers([])
       }
@@ -857,7 +850,7 @@ export default function Detail_operateur() {
     setSelectedUser(null)
   }
 
-  /* ✅ CONFIRMÉ : POST /pin/reset/{id}  body: { operatorType } */
+  /*  CONFIRMÉ : POST /pin/reset/{id}  body: { operatorType } */
   const handleConfirmReset = async (user /*, raison */) => {
     setActionLoading(true)
     try {
@@ -887,8 +880,8 @@ export default function Detail_operateur() {
     }
   }
 
-  /* ✅ CONFIRMÉ (déverrouiller) : POST /pin/unlock/{id}  body: { operatorType }
-     ⚠️ À CONFIRMER (verrouiller) : pas d'endpoint fourni → mise à jour locale uniquement */
+  /*  CONFIRMÉ (déverrouiller) : POST /pin/unlock/{id}  body: { operatorType } */
+    
   const handleConfirmLock = async (user) => {
     const isLocked = user.pinStatus === "verrouille"
 
@@ -940,14 +933,6 @@ export default function Detail_operateur() {
             <p className="text-gray-500 text-xs sm:text-sm lg:text-base">Gestion des PIN — Opérateurs</p>
           </div>
         </div>
-        <button
-          onClick={fetchUsers}
-          disabled={loading}
-          className="p-2 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50 flex-shrink-0"
-          aria-label="Rafraîchir"
-        >
-          <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
-        </button>
       </div>
 
       <NotificationBanner notif={notif} onDismiss={dismiss} />

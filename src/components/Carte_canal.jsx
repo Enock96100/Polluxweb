@@ -10,11 +10,16 @@ import { useEffect, useState } from "react"
 import { useParams } from "react-router-dom"
 import axios from "axios"
 import { useNavigate } from "react-router-dom"
+import useAuth from "../context/auth/utils"
 
 /* ===================== MAIN ===================== */
 
 export default function OperationsPage() {
   const { id } = useParams()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
 
   const [activeTab, setActiveTab]           = useState("cartes")
   const [operationsData, setOperationsData] = useState([])
@@ -31,6 +36,12 @@ export default function OperationsPage() {
   const [formulaOptions, setFormulaOptions] = useState([])
 
   const navigate = useNavigate()
+
+  // PREPAID_CARD_READ : voir le détail d'une carte prépayée
+  // SUBSCRIPTION_READ : voir le détail d'un abonnement Canal+
+  const canViewDetail = activeTab === "cartes"
+    ? can("PREPAID_CARD_READ")
+    : can("SUBSCRIPTION_READ")
 
   /* ===================== AUTH ===================== */
 
@@ -70,7 +81,7 @@ export default function OperationsPage() {
 
     try {
       const response = await axios.get(
-        "https://youapi.youneed.app/pollux/dev/api/auth/profile",
+        "https://youapi.youneed.app/pollux/prod/api/auth/profile",
         { headers: { accept: "application/json", Authorization: `Bearer ${token}` } }
       )
       const profile = response.data
@@ -93,15 +104,6 @@ export default function OperationsPage() {
 
   /* ===================== FETCH FORMULAS ===================== */
 
-  // ✅ CORRIGÉ : le serviceId était codé en dur ("b9e9ec8f-4fb4-4b29-85c6-e9d54b48b012"),
-  // ce qui faisait toujours remonter les formules d'un seul et même service, quelle que
-  // soit la page produit réellement affichée. On utilise maintenant l'`id` du service
-  // récupéré via useParams() (déjà présent dans le composant mais jamais utilisé ici).
-  // ⚠️ À CONFIRMER : je pars du principe que le paramètre d'URL de cette page est bien
-  // le serviceId attendu par GET /prepairs-formula/service/:serviceId (c'est cohérent
-  // avec l'usage de `id` dans le reste du fichier — passé tel quel dans les routes de
-  // navigation `/detail_carte_prepay/:id` etc.). Si ce n'est pas le cas, remplacez `id`
-  // par le bon identifiant disponible dans le composant.
   const fetchFormulas = async () => {
     if (!id) {
       setFormulaOptions([])
@@ -110,7 +112,7 @@ export default function OperationsPage() {
     try {
       const { token } = getAuthData()
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/prepairs-formula/service/${id}`,
+        `https://youapi.youneed.app/pollux/prod/api/prepairs-formula/service/${id}`,
         { headers: { accept: "application/json", Authorization: `Bearer ${token}` } }
       )
 
@@ -132,20 +134,13 @@ export default function OperationsPage() {
 
   /* ===================== FETCH CARDS ===================== */
 
-  /*  CORRECTION PAGINATION :
-      La limite était fixée à 100 (`limit=100`), ce qui tronquait
-      silencieusement la liste au-delà de 100 cartes : la pagination
-      "page par page" ne portait alors que sur ce sous-ensemble tronqué.
-      Comme dans Produits.jsx, on remonte maintenant TOUTE la liste en
-      un seul appel, et c'est le rendu qui gère seul la recherche, les
-      filtres et la pagination page par page côté client. */
   const fetchCards = async () => {
     try {
       setLoading(true)
       const { token, companyId } = await resolveCompanyId()
 
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/prepaid-cards/companies/${companyId}/cards?page=1&limit=1000`,
+        `https://youapi.youneed.app/pollux/prod/api/prepaid-cards/companies/${companyId}/cards?page=1&limit=1000`,
         { headers: { accept: "application/json", Authorization: `Bearer ${token}` } }
       )
          console.log("fetchCards response:", response.data)
@@ -211,17 +206,13 @@ export default function OperationsPage() {
 
   /* ===================== FETCH SUBSCRIPTIONS ===================== */
 
-  /*  CORRECTION PAGINATION : même correctif que fetchCards ci-dessus —
-      remonter toute la liste des abonnements pour que la pagination
-      côté client (recherche + statut + page) porte sur l'ensemble des
-      résultats, et pas uniquement sur les 100 premiers. */
   const fetchSubscriptions = async () => {
     try {
       setLoading(true)
       const { token, companyId } = await resolveCompanyId()
 
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/canal-subscriptions/companies/${companyId}?page=1&limit=1000`,
+        `https://youapi.youneed.app/pollux/prod/api/canal-subscriptions/companies/${companyId}?page=1&limit=1000`,
         { headers: { accept: "application/json", Authorization: `Bearer ${token}` } }
       )
 
@@ -281,15 +272,6 @@ export default function OperationsPage() {
 
   /* ===================== FILTER ===================== */
 
-  // ✅ CORRIGÉ : la recherche comparait uniquement `item.cardNumber`, un champ qui
-  // n'existe que pour les abonnements Canal+ (les cartes prépayées, elles, ont un
-  // champ `cardId` et un `id` — jamais comparés). Résultat : taper un identifiant de
-  // carte dans la recherche ne trouvait jamais rien pour l'onglet "Cartes Prépayées".
-  // On ajoute désormais :
-  //   - la comparaison sur `item.cardId` (identifiant métier de la carte) ;
-  //   - la comparaison sur `item.id` (identifiant technique complet, UUID) ;
-  //   - la comparaison sur les 3 DERNIERS CARACTÈRES de `item.id`, pour permettre
-  //     à l'utilisateur de retrouver une carte en tapant juste la fin de son UUID.
   const filteredData = operationsData.filter((item) => {
     const q = search.trim().toLowerCase()
 
@@ -346,7 +328,7 @@ export default function OperationsPage() {
   ]
 
   const statusOptions  = activeTab === "cartes" ? cardStatusOptions : subscriptionStatusOptions
-  const colSpanCount   = activeTab === "cartes" ? 7 : 7
+  const colSpanCount   = (activeTab === "cartes" ? 7 : 7) - (canViewDetail ? 0 : 1)
 
   /* ===================== RENDER ===================== */
 
@@ -469,7 +451,9 @@ export default function OperationsPage() {
                   <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap">Distributeur</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap">Date d'activation</th>
                   <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap">Statut</th>
-                  <th className="px-4 py-3 text-center text-sm uppercase tracking-[0.02em] font-semibold whitespace-nowrap">Actions</th>
+                  {canViewDetail && (
+                    <th className="px-4 py-3 text-center text-sm uppercase tracking-[0.02em] font-semibold whitespace-nowrap">Actions</th>
+                  )}
                 </tr>
               ) : (
                 <tr>
@@ -479,7 +463,9 @@ export default function OperationsPage() {
                   <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap">Distributeur</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold whitespace-nowrap">Date d'activation</th>
                   <th className="px-4 py-3 text-center text-sm font-semibold whitespace-nowrap">Statut</th>
-                  <th className="px-4 py-3 text-center text-sm uppercase tracking-[0.02em] font-semibold whitespace-nowrap">Actions</th>
+                  {canViewDetail && (
+                    <th className="px-4 py-3 text-center text-sm uppercase tracking-[0.02em] font-semibold whitespace-nowrap">Actions</th>
+                  )}
                 </tr>
               )}
             </thead>
@@ -500,6 +486,7 @@ export default function OperationsPage() {
                     rowIndex={index}
                     activeTab={activeTab}
                     navigate={navigate}
+                    canViewDetail={canViewDetail}
                   />
                 ))
               ) : (
@@ -535,8 +522,6 @@ export default function OperationsPage() {
 }
 
 /* ===================== TAB BUTTON ===================== */
-/* Style identique au composant Tab du fichier Produits (mêmes classes,
-   mêmes tailles), utilisé ici pour "Cartes Prépayées" / "Abonnements Canal+". */
 
 function TabButton({ label, active, onClick }) {
   return (
@@ -551,7 +536,7 @@ function TabButton({ label, active, onClick }) {
 
 /* ===================== ROW ===================== */
 
-function OperationRow({ item, start, rowIndex, activeTab, navigate }) {
+function OperationRow({ item, start, rowIndex, activeTab, navigate, canViewDetail }) {
 
   const getStatusStyle = () => {
     switch (item.status) {
@@ -598,16 +583,18 @@ function OperationRow({ item, start, rowIndex, activeTab, navigate }) {
           </span>
         </td>
 
-        <td className="px-4 py-3 text-center whitespace-nowrap">
-          <div className="flex justify-center">
-            <button
-              onClick={() => navigate(`/detail_carte_prepay/${item.id}`)}
-              className="text-gray-600 hover:text-[#1EA4DC] transition"
-            >
-              <Eye size={16} />
-            </button>
-          </div>
-        </td>
+        {canViewDetail && (
+          <td className="px-4 py-3 text-center whitespace-nowrap">
+            <div className="flex justify-center">
+              <button
+                onClick={() => navigate(`/detail_carte_prepay/${item.id}`)}
+                className="text-gray-600 hover:text-[#1EA4DC] transition"
+              >
+                <Eye size={16} />
+              </button>
+            </div>
+          </td>
+        )}
       </tr>
     )
   }
@@ -637,22 +624,23 @@ function OperationRow({ item, start, rowIndex, activeTab, navigate }) {
         </span>
       </td>
 
-      <td className="px-4 py-3 text-center whitespace-nowrap">
-        <div className="flex justify-center">
-          <button
-            onClick={() => navigate(`/detail_abonnement/${item.id}`)}
-            className="text-gray-600 hover:text-[#1EA4DC] transition"
-          >
-            <Eye size={16} />
-          </button>
-        </div>
-      </td>
+      {canViewDetail && (
+        <td className="px-4 py-3 text-center whitespace-nowrap">
+          <div className="flex justify-center">
+            <button
+              onClick={() => navigate(`/detail_abonnement/${item.id}`)}
+              className="text-gray-600 hover:text-[#1EA4DC] transition"
+            >
+              <Eye size={16} />
+            </button>
+          </div>
+        </td>
+      )}
     </tr>
   )
 }
 
 /* ===================== PAGINATION ===================== */
-/* Style exactement identique à celui de la page Produits. */
 
 function PaginationFooter({ total, start, end, rowsPerPage, setRowsPerPage, currentPage, setCurrentPage, totalPages }) {
   const isFirstPage = currentPage <= 1

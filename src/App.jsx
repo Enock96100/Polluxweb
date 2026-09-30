@@ -4,7 +4,6 @@ import Login from "./components/Login";
 import Code from "./components/Code";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
-import Dashboard from "./components/Dashboard";
 import Produits from "./components/Produits";
 import Partenaires from "./components/Partenaires";
 import Wallet from "./components/Wallet";
@@ -41,6 +40,9 @@ import Commission_ad from "./components/Commission_ad";
 import Detail_com_ad from "./components/Detail_com_ad";
 import Detail_operateur from "./components/Detail_operateur";
 import Gpin from "./components/Gpin";
+import DashboardSwitch from "./components/DashboardSwitch";
+import Mes_permissions from "./components/Mes_permissions";
+
 /* ================= LAYOUT ================= */
 
 function DashboardLayout() {
@@ -144,7 +146,12 @@ export default function App() {
           {/* DASHBOARD PROTÉGÉ */}
           <Route element={<PrivateRoute />}>
             <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
+              {/*
+                Une seule route /dashboard pour les deux rôles :
+                DashboardSwitch affiche Dashboard.jsx (compagnie) ou
+                Dashboard_agent.jsx (agent) selon userType du contexte auth.
+              */}
+              <Route path="/dashboard" element={<DashboardSwitch />} />
               <Route path="/produits" element={<Produits />} />
               <Route path="/carte_canal" element={<Carte_canal />} />
               <Route path="/detail/:id" element={<Detail />} /> 
@@ -179,8 +186,7 @@ export default function App() {
               <Route path="/detail_com_ad/:id" element={<Detail_com_ad />} />
               <Route path="/detail_operateur/:id" element={<Detail_operateur />} />
               <Route path="/gpin" element={<Gpin />} />
-             
-             
+              <Route path="/Mes_permissions" element={<Mes_permissions />} />
             </Route>
           </Route>
 

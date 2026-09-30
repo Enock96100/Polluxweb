@@ -17,13 +17,13 @@ import { useParams, useNavigate } from "react-router-dom"
 import { useEffect, useState, useRef, useCallback } from "react"
 import axios from "axios"
 
-const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/dev/api/products/sub-products"
-const PARABOLA_API        = "https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas"
-const FORMULA_API         = "https://youapi.youneed.app/pollux/dev/api/formula-canals"
-const OPTION_API          = "https://youapi.youneed.app/pollux/dev/api/canal-options"
-const PREPAID_FORM_API    = "https://youapi.youneed.app/pollux/dev/api/prepairs-formula/service"
-const PREPAID_FORM_CREATE = "https://youapi.youneed.app/pollux/dev/api/prepairs-formula"
-const PARTNERS_API        = "https://youapi.youneed.app/pollux/dev/api/products/services"
+const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/prod/api/products/sub-products"
+const PARABOLA_API        = "https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas"
+const FORMULA_API         = "https://youapi.youneed.app/pollux/prod/api/formula-canals"
+const OPTION_API          = "https://youapi.youneed.app/pollux/prod/api/canal-options"
+const PREPAID_FORM_API    = "https://youapi.youneed.app/pollux/prod/api/prepairs-formula/service"
+const PREPAID_FORM_CREATE = "https://youapi.youneed.app/pollux/prod/api/prepairs-formula"
+const PARTNERS_API        = "https://youapi.youneed.app/pollux/prod/api/products/services"
 
 const TABS_CANAL   = ["Décodeurs", "Formules Canal+", "Option Canal+", "Paraboles", "Distributeurs", "Commerçants"]
 const TABS_PREPAID = ["Carte prépayée", "Formules carte prépayée", "Distributeurs", "Commerçants"]
@@ -169,7 +169,7 @@ export default function CanalDecoderPage() {
     try {
       const { token } = getAuthData()
       const res = await axios.get(
-        "https://youapi.youneed.app/pollux/dev/api/auth/profile",
+        "https://youapi.youneed.app/pollux/prod/api/auth/profile",
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       const resolvedId =
@@ -229,7 +229,7 @@ export default function CanalDecoderPage() {
     try {
       const { token } = getAuthData()
       const res = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/products/services/${id}`,
+        `https://youapi.youneed.app/pollux/prod/api/products/services/${id}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       setProduct(res.data?.data)
@@ -1858,7 +1858,7 @@ function DecoderForm({ initialData, onSubmit, onCancel, submitLabel }) {
       try {
         const token = localStorage.getItem("token")
         const res = await axios.get(
-          "https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas?page=1&limit=50",
+          "https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas?page=1&limit=50",
           { headers: { Authorization: `Bearer ${token}` } }
         )
         setParabolas(res.data?.data || [])

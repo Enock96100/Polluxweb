@@ -32,7 +32,7 @@ import { getAuthData } from "./auth"
 ═══════════════════════════════════════════════ */
 
 const MERCHANT_COMMISSIONS_API = (merchantId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/merchants/${merchantId}/history`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/merchants/${merchantId}/history`
 
 const HISTORY_PAGE_LIMIT = 20
 const HISTORY_MAX_PAGES_SAFEGUARD = 200 // garde-fou anti-boucle infinie

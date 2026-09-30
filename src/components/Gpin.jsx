@@ -9,14 +9,14 @@ import { getAuthData, fetchProfile } from "./auth"
    ══════════════════════════════════════════════ */
 
 /* ✅ CONFIRMÉ */
-const MERCHANTS_API    = "https://youapi.youneed.app/pollux/dev/api/merchants/companies"
+const MERCHANTS_API    = "https://youapi.youneed.app/pollux/prod/api/merchants/companies"
 /* ✅ CONFIRMÉ */
-const DISTRIBUTORS_API = "https://youapi.youneed.app/pollux/dev/api/distributors/by-company"
+const DISTRIBUTORS_API = "https://youapi.youneed.app/pollux/prod/api/distributors/by-company"
 /* ✅ CONFIRMÉ */
-const AGENTS_API       = "https://youapi.youneed.app/pollux/dev/api/admin-agents/company"
+const AGENTS_API       = "https://youapi.youneed.app/pollux/prod/api/admin-agents/company"
 /* ⚠️ À CONFIRMER : endpoint dédié à l'entreprise principale (aucun curl fourni pour celui-ci,
    la structure vient d'un exemple Swagger). En attendant on retombe sur fetchProfile(). */
-const COMPANY_API      = "https://youapi.youneed.app/pollux/dev/api/companies"
+const COMPANY_API      = "https://youapi.youneed.app/pollux/prod/api/companies"
 
 const OPERATEUR_DEFS = [
   { id: "entreprise-principale", nom: "Entreprise Principale", description: "" },

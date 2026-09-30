@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom"
 import { PlusCircle, ChevronDown, Info, ArrowLeft, CheckCircle, AlertCircle, X, Building2, Layers  } from "lucide-react"
 import axios from "axios"
 import { getAuthData, fetchProfile } from "./auth"
+import useAuth from "../context/auth/utils"
 
-const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/dev/api/products/sub-products"
-const SUBPRODUCT_BULK_API = "https://youapi.youneed.app/pollux/dev/api/products/sub-products/bulk"
-const BANK_API             = "https://youapi.youneed.app/pollux/dev/api/products/banks"
-const FORMULA_API          = "https://youapi.youneed.app/pollux/dev/api/prepairs-formula/service"
-const PARABOLA_API         = "https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas"
+const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/prod/api/products/sub-products"
+const SUBPRODUCT_BULK_API = "https://youapi.youneed.app/pollux/prod/api/products/sub-products/bulk"
+const BANK_API             = "https://youapi.youneed.app/pollux/prod/api/products/banks"
+const FORMULA_API          = "https://youapi.youneed.app/pollux/prod/api/prepairs-formula/service"
+const PARABOLA_API         = "https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas"
 
 function getServiceType(service) {
   if (!service) return null
@@ -77,6 +78,10 @@ function NotificationBanner({ notif, onDismiss }) {
 export default function SubProductCreationPage() {
   const navigate = useNavigate()
   const { notif, showSuccess, showError, dismiss } = useNotification()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
 
   const [products,  setProducts]  = useState([])
   const [banks,     setBanks]     = useState([])
@@ -99,7 +104,7 @@ export default function SubProductCreationPage() {
           companyId = profile?.company?.id
         }
         const res = await axios.get(
-          `https://youapi.youneed.app/pollux/dev/api/products/services/company/${companyId}`,
+          `https://youapi.youneed.app/pollux/prod/api/products/services/company/${companyId}`,
           { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
         )
         setProducts(Array.isArray(res?.data?.data) ? res.data.data : [])
@@ -203,6 +208,7 @@ export default function SubProductCreationPage() {
           showError={showError}
           setLoading={setLoading}
           loading={loading}
+          can={can}
         />
       )}
 
@@ -216,6 +222,7 @@ export default function SubProductCreationPage() {
           showError={showError}
           setLoading={setLoading}
           loading={loading}
+          can={can}
         />
       )}
 
@@ -540,6 +547,7 @@ function CartePrePayeeSection({
   showError,
   setLoading,
   loading,
+  can,
 }) {
   const [form, setForm] = useState({
     bankId:               "",
@@ -552,6 +560,15 @@ function CartePrePayeeSection({
 
   const [createFormuleModal, setCreateFormuleModal] = useState(false)
   const [createBanqueModal,  setCreateBanqueModal]  = useState(false)
+
+  // BANK_CREATE : code confirmé dans le catalogue (module BANK_MANAGEMENT).
+  const canCreateBank = can("BANK_CREATE")
+  // ⚠️ À CONFIRMER : aucun code dédié dans le catalogue pour la création
+  // d'une formule de carte prépayée ni pour la génération en masse de
+  // cartes — SUBPRODUCT_CREATE utilisé comme proxy le plus proche (même
+  // logique que Ajouter_carte.jsx).
+  const canCreateFormula = can("SUBPRODUCT_CREATE")
+  const canGenerateCards = can("SUBPRODUCT_CREATE")
 
   const refreshFormulas = async () => {
     try {
@@ -673,11 +690,13 @@ function CartePrePayeeSection({
                 <Building2 size={18} className="text-[#1EA4DC]" />
                 <h3 className="text-sm sm:text-base font-semibold text-gray-900">Banque</h3>
               </div>
-            <button type="button" onClick={() => setCreateBanqueModal(true)}
-                className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
-                <PlusCircle size={16} />
-                Nouvelle
-              </button>
+            {canCreateBank && (
+              <button type="button" onClick={() => setCreateBanqueModal(true)}
+                  className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
+                  <PlusCircle size={16} />
+                  Nouvelle
+                </button>
+            )}
           </div>
           <p className="text-xs sm:text-sm text-gray-500">Sélectionner la banque</p>
           <div className="relative">
@@ -703,11 +722,13 @@ function CartePrePayeeSection({
                 <Layers size={18} className="text-[#1EA4DC]" />
                 <h3 className="text-sm sm:text-base font-semibold text-gray-900">Formule carte</h3>
               </div>
-            <button type="button" onClick={() => setCreateFormuleModal(true)}
-                className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
-                <PlusCircle size={16} />
-                Nouvelle
-              </button>
+            {canCreateFormula && (
+              <button type="button" onClick={() => setCreateFormuleModal(true)}
+                  className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
+                  <PlusCircle size={16} />
+                  Nouvelle
+                </button>
+            )}
             </div>
           <p className="text-xs sm:text-sm text-gray-500">Sélectionner la formule</p>
           <div className="relative">
@@ -761,9 +782,11 @@ function CartePrePayeeSection({
         <button onClick={() => navigate(-1)} className="border border-gray-200 px-6 py-2 rounded-lg text-sm">
           Annuler
         </button>
-        <button onClick={handleSubmit} disabled={loading} className="bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60">
-          {loading ? "Création..." : "Générer la carte"}
-        </button>
+        {canGenerateCards && (
+          <button onClick={handleSubmit} disabled={loading} className="bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60">
+            {loading ? "Création..." : "Générer la carte"}
+          </button>
+        )}
       </div>
     </>
   )
@@ -771,11 +794,6 @@ function CartePrePayeeSection({
 
 /* ══════════════════════════════════════════════
    MODAL CRÉER PARABOLE
-   CORRIGÉ : le champ "Code parabole" a été retiré du formulaire.
-   Le code est désormais généré automatiquement au format "PAR-000",
-   en se basant sur le plus grand numéro déjà utilisé parmi les
-   paraboles existantes (récupérées via un GET juste avant l'envoi,
-   pour éviter toute collision liée à un état local périmé).
    ══════════════════════════════════════════════ */
 function CreateParaboleModal({ onClose, onCreated }) {
   const { notif, showSuccess, showError, dismiss } = useNotification()
@@ -925,12 +943,19 @@ function CreateParaboleModal({ onClose, onCreated }) {
 /* ══════════════════════════════════════════════
    SECTION CANAL+
    ══════════════════════════════════════════════ */
-function CanalPlusSection({ parabolas: initialParabolas, serviceId, navigate, showSuccess, showError, setLoading, loading }) {
+function CanalPlusSection({ parabolas: initialParabolas, serviceId, navigate, showSuccess, showError, setLoading, loading, can }) {
   const [withParabola,       setWithParabola]       = useState(false)
   const [selectedParabolaId, setSelectedParabolaId] = useState("")
   const [form, setForm]      = useState({ name: "", code: "", description: "" })
   const [showModal,          setShowModal]           = useState(false)
   const [parabolas,          setParabolas]           = useState(initialParabolas)
+
+  // ⚠️ À CONFIRMER : aucun code dédié pour la création d'une parabole
+  // (/formula-canals/parabolas) ni pour la création d'un décodeur —
+  // SUBPRODUCT_CREATE utilisé comme proxy le plus proche (même logique
+  // que Ajouter_decodeur.jsx).
+  const canCreateParabole = can("SUBPRODUCT_CREATE")
+  const canCreateDecoder  = can("SUBPRODUCT_CREATE")
 
   useEffect(() => { setParabolas(initialParabolas) }, [initialParabolas])
 
@@ -1014,14 +1039,16 @@ function CanalPlusSection({ parabolas: initialParabolas, serviceId, navigate, sh
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="border border-[#1EA4DC] rounded-xl p-4 sm:p-5 flex items-center justify-between w-full text-left gap-2"
-        >
-          <span className="text-sm sm:text-base font-semibold text-gray-800">Ajouter un nouveau parabole</span>
-          <PlusCircle size={24} className="text-[#1EA4DC] flex-shrink-0" />
-        </button>
+        {canCreateParabole && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="border border-[#1EA4DC] rounded-xl p-4 sm:p-5 flex items-center justify-between w-full text-left gap-2"
+          >
+            <span className="text-sm sm:text-base font-semibold text-gray-800">Ajouter un nouveau parabole</span>
+            <PlusCircle size={24} className="text-[#1EA4DC] flex-shrink-0" />
+          </button>
+        )}
       </div>
 
       <div className="border border-gray-200 rounded-xl p-4 sm:p-6 space-y-4 sm:space-y-5">
@@ -1094,9 +1121,11 @@ function CanalPlusSection({ parabolas: initialParabolas, serviceId, navigate, sh
         <button onClick={() => navigate(-1)} className="border border-gray-200 px-6 py-2 rounded-lg text-sm">
           Annuler
         </button>
-        <button onClick={handleSubmit} disabled={loading} className="bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60">
-          {loading ? "Création..." : "Créer le décodeur"}
-        </button>
+        {canCreateDecoder && (
+          <button onClick={handleSubmit} disabled={loading} className="bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60">
+            {loading ? "Création..." : "Créer le décodeur"}
+          </button>
+        )}
       </div>
     </>
   )

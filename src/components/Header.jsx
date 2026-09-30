@@ -13,6 +13,7 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  ShieldCheck,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -22,7 +23,7 @@ import useAuth from "../context/auth/utils";
 // -----------------------------------------------------------------------
 // Config API
 // -----------------------------------------------------------------------
-const API_BASE = "https://youapi.youneed.app/pollux/dev/api";
+const API_BASE = "https://youapi.youneed.app/pollux/prod/api";
 const PAGE_LIMIT = 20;
 
 // ⚠️ Adapte cette fonction si tu as déjà un utilitaire getAuthData()/getToken()
@@ -85,7 +86,7 @@ async function apiFetchNotificationById(id) {
 }
 
 // -----------------------------------------------------------------------
-// Helpers d'affichage
+// Helpers d'affichage — notifications
 // -----------------------------------------------------------------------
 const OPERATION_TYPE_LABELS = {
   CANAL_SUBSCRIPTION_NEW: "Nouvel abonnement Canal+",
@@ -152,6 +153,41 @@ function formatFullDate(isoString) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// -----------------------------------------------------------------------
+// Helpers d'affichage — type d'opérateur connecté
+// -----------------------------------------------------------------------
+// ✅ CONFIRMÉ : valeurs "userType" observées dans l'API (mêmes valeurs que
+// OPERATOR_TYPE_MAP utilisé dans Detail_operateur.jsx pour /pin/reset et /pin/unlock).
+const OPERATOR_TYPE_LABELS = {
+  MAIN_COMPANY: "Compagnie",
+  ADMIN_AGENT: "Agent",
+  DISTRIBUTOR: "Distributeur",
+  MERCHANT: "Commerçant",
+};
+
+/**
+ * Construit le libellé à afficher dans le header :
+ *  - MAIN_COMPANY -> "COMPAGNIE"            (sans nom : déjà affiché à côté)
+ *  - ADMIN_AGENT  -> "AGENT"                (sans nom : déjà affiché à côté)
+ *  - DISTRIBUTOR  -> "DISTRIBUTEUR : ENOCK ABOU"
+ *  - MERCHANT     -> "COMMERÇANT : JEANNE HOUNKPATIN"
+ */
+function getOperatorTypeLabel(userInfo) {
+  const userType = userInfo?.userType || userInfo?.user?.userType;
+  const typeLabel = OPERATOR_TYPE_LABELS[userType];
+  if (!typeLabel) return null; // type inconnu/non chargé : on n'affiche rien plutôt qu'un libellé faux
+
+  // Compagnie et Agent : uniquement le type, le nom et l'email sont déjà
+  // affichés dans le bloc profil.
+  if (userType === "MAIN_COMPANY" || userType === "ADMIN_AGENT") {
+    return typeLabel.toUpperCase();
+  }
+
+  const fullName = [userInfo?.firstName, userInfo?.lastName].filter(Boolean).join(" ");
+
+  return `${typeLabel.toUpperCase()} : ${(fullName || "Utilisateur").toUpperCase()}`;
 }
 
 // -----------------------------------------------------------------------
@@ -358,6 +394,12 @@ export default function Header() {
   const notifRef = useRef(null);
   const hasLoadedOnce = useRef(false);
 
+  const operatorTypeLabel = getOperatorTypeLabel(userInfo);
+
+  // Le menu "Mes permissions" n'est visible que pour les Agents.
+  // La Compagnie a déjà la main sur tout, elle n'en a pas besoin.
+  const isAgent = (userInfo?.userType || userInfo?.user?.userType) === "ADMIN_AGENT";
+
   // ---------------------------------------------------------------------
   // Chargement du compteur de non-lus (indépendant du panneau)
   // ---------------------------------------------------------------------
@@ -495,6 +537,13 @@ export default function Header() {
     navigate("/commission_ad");
   };
 
+  // Navigation vers la page Mes permissions (Agent uniquement)
+  //  CONFIRMÉ : route "/Mes_permissions" -> <Mes_permissions />
+  const handleGoToPermissions = () => {
+    setOpenMenu(false);
+    navigate("/Mes_permissions");
+  };
+
   // ---------------------------------------------------------------------
   // Actions : marquer tout lu / tout supprimer
   // ---------------------------------------------------------------------
@@ -536,34 +585,47 @@ export default function Header() {
   };
 
   // ---------------------------------------------------------------------
-  // Ouverture du détail (récupère la notification via l'API puis resynchronise)
+  // Ouverture du détail (marque immédiatement comme lue + déduit le compteur,
+  // puis récupère le détail via l'API et resynchronise en arrière-plan)
   // ---------------------------------------------------------------------
   const handleOpenNotification = async (notification) => {
     setSelectedNotif(notification);
     setDetailLoading(true);
+
+    const wasUnread = !notification.isRead;
+
+    // Mise à jour optimiste immédiate : la notification passe à "lue" et le
+    // badge de non-lus est déduit tout de suite, sans attendre la réponse réseau
+    // (et même si l'API de détail ne marque pas la notification comme lue côté serveur).
+    // Dans l'onglet "Non lu", une notification lue ne doit plus y figurer du tout —
+    // elle reste seulement visible dans "Tout", avec l'état "lu".
+    if (wasUnread) {
+      setNotifications((prev) => {
+        if (activeTab === "non-lu") {
+          return prev.filter((n) => n.id !== notification.id);
+        }
+        return prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n));
+      });
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
+
     try {
       const fresh = await apiFetchNotificationById(notification.id);
       if (fresh) {
-        setSelectedNotif(fresh);
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === fresh.id ? { ...n, ...fresh } : n))
-        );
-      } else {
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n.id === notification.id ? { ...n, isRead: true } : n
-          )
-        );
+        setSelectedNotif({ ...fresh, isRead: true });
+        setNotifications((prev) => {
+          if (activeTab === "non-lu") {
+            return prev.filter((n) => n.id !== fresh.id);
+          }
+          return prev.map((n) => (n.id === fresh.id ? { ...n, ...fresh, isRead: true } : n));
+        });
       }
+      // Resynchronise avec le serveur en arrière-plan (couvre le cas où la
+      // notification a déjà été lue depuis un autre onglet/appareil).
       refreshUnreadCount();
     } catch (err) {
       console.error("Erreur récupération détail notification :", err);
-      // On garde au moins l'affichage optimiste local
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.id === notification.id ? { ...n, isRead: true } : n
-        )
-      );
+      // L'état "lu" optimiste reste en place même si le détail échoue à charger.
     } finally {
       setDetailLoading(false);
     }
@@ -576,7 +638,21 @@ export default function Header() {
     // qui est en position fixed top-4 left-4. À partir de lg, la Sidebar est
     // toujours visible et le burger n'existe plus, donc on repasse à un
     // padding symétrique classique.
-    <header className="h-16 flex-shrink-0 bg-white border border-gray-200 flex justify-end items-center pl-16 pr-3 sm:pl-16 sm:pr-4 lg:px-6 gap-3 sm:gap-4 lg:gap-6 sticky top-0 z-10">
+    <header className="h-16 flex-shrink-0 bg-white border border-gray-200 flex items-center pl-16 pr-3 sm:pl-16 sm:pr-4 lg:px-6 gap-3 sm:gap-4 lg:gap-6 sticky top-0 z-10">
+      {/* --------------------------------------------------------------- */}
+      {/* Badge type d'opérateur connecté — "COMPAGNIE", "AGENT",
+          "DISTRIBUTEUR : ...", "COMMERÇANT : ..." */}
+      {/* --------------------------------------------------------------- */}
+      {operatorTypeLabel && (
+        <span
+          className="mr-auto flex items-center gap-2 text-sm sm:text-base font-semibold text-[#1EA4DC] bg-[#1EA4DC]/10 px-3 sm:px-4 py-1.5 sm:py-2 truncate max-w-[45vw] sm:max-w-xs"
+          style={{ borderRadius: "10px" }}
+        >
+          <BadgeCheck size={18} className="flex-shrink-0" />
+          <span className="truncate">{operatorTypeLabel}</span>
+        </span>
+      )}
+
       {/* --------------------------------------------------------------- */}
       {/* Notifications */}
       {/* --------------------------------------------------------------- */}
@@ -818,6 +894,11 @@ export default function Header() {
                 <p className="text-gray-500 text-xs truncate">
                   {userInfo?.email || ""}
                 </p>
+                {operatorTypeLabel && (
+                  <p className="text-[11px] font-semibold text-[#1EA4DC] mt-0.5 truncate">
+                    {operatorTypeLabel}
+                  </p>
+                )}
               </div>
               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-emerald-600 bg-emerald-50 flex-shrink-0">
                 <BadgeCheck size={12} />
@@ -866,6 +947,26 @@ export default function Header() {
                   </p>
                 </span>
               </button>
+
+              {isAgent && (
+                <button
+                  type="button"
+                  onClick={handleGoToPermissions}
+                  className="group flex items-center gap-3 w-full px-4 sm:px-5 py-3 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-[#1EA4DC]/10 text-[#1EA4DC] flex-shrink-0">
+                    <ShieldCheck size={17} />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      Mes Permissions
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Consulter vos droits d'accès
+                    </p>
+                  </span>
+                </button>
+              )}
             </div>
 
             <div className="h-px bg-gray-100" />

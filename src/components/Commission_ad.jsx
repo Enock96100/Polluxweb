@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Eye,
   Loader2,
@@ -16,10 +16,19 @@ import { getAuthData, fetchProfile } from "./auth"
   API
 ═══════════════════════════════════════════════ */
 
+const API_BASE = "https://youapi.youneed.app/pollux/prod/api"
+
 //  CONFIRMÉ : historique des commissions de l'entreprise connectée
 // GET /commissions/companies/:companyId/history?page=&limit=
 const COMPANY_COMMISSIONS_HISTORY_API = (companyId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/companies/${companyId}/history`
+  `${API_BASE}/commissions/companies/${companyId}/history`
+
+// ⚠️ À CONFIRMER : historique des commissions de l'agent connecté
+// GET /commissions/agents/:agentId/history?page=&limit=
+// Si ta route est différente (ex: /commissions/users/:id/history ou
+// /commissions/me/history), modifie uniquement cette ligne.
+const AGENT_COMMISSIONS_HISTORY_API = (agentId) =>
+  `${API_BASE}/commissions/agents/${agentId}/history`
 
 /* ═══════════════════════════════════════════════
   HELPERS DE FORMATAGE
@@ -40,25 +49,32 @@ function formatMontant(value) {
 }
 
 /* ═══════════════════════════════════════════════
-  RÉSOLUTION DU COMPANY ID (utilisateur connecté)
-  - Priorité au localStorage (getAuthData) pour éviter un appel réseau
-    inutile si le companyId est déjà connu.
-  - Sinon, on va chercher le profil (fetchProfile) et on en extrait le
-    companyId.
-  ⚠️ À CONFIRMER : la forme exacte du profil retourné par fetchProfile()
-  (ici on tente profile.company.id puis profile.companyId en repli).
+  RÉSOLUTION DE L'OPÉRATEUR CONNECTÉ (Agent ou Compagnie)
 ═══════════════════════════════════════════════ */
-async function resolveCompanyId() {
-  const { companyId } = getAuthData()
-  if (companyId) return companyId
-
+// Retourne { kind: "agent" | "company", id, name }
+//  - ADMIN_AGENT  -> commissions de l'agent connecté
+//  - sinon        -> commissions de la compagnie connectée
+async function resolveOperator() {
+  const auth = getAuthData() || {}
   const profile = await fetchProfile()
-  if (!profile) throw new Error("Impossible de récupérer le profil")
+  if (!profile && !auth.companyId) throw new Error("Impossible de récupérer le profil")
 
-  const resolvedId = profile?.company?.id || profile?.companyId // ⚠️ À CONFIRMER
-  if (!resolvedId) throw new Error("CompanyId manquant")
+  const userType = profile?.userType || profile?.user?.userType || auth.userType
 
-  return resolvedId
+  // ── Agent connecté ──
+  if (userType === "ADMIN_AGENT") {
+    const agentId = profile?.id || profile?.user?.id || auth.userId // ⚠️ À CONFIRMER
+    if (!agentId) throw new Error("Identifiant de l'agent manquant")
+
+    const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(" ")
+    return { kind: "agent", id: agentId, name: fullName || "-" }
+  }
+
+  // ── Compagnie connectée ──
+  const companyId = auth.companyId || profile?.company?.id || profile?.companyId // ⚠️ À CONFIRMER
+  if (!companyId) throw new Error("CompanyId manquant")
+
+  return { kind: "company", id: companyId, name: profile?.company?.name || "-" }
 }
 
 /* ═══════════════════════════════════════════════
@@ -97,9 +113,6 @@ function mapCommission(c) {
     "-"
   return {
     id: c.id,
-    // ✅ CORRIGÉ : id de l'opération liée (utilisé pour la redirection vers
-    // la page de détail, qui charge GET /operations/:id) — distinct de
-    // l'id de la commission elle-même (c.id).
     operationId: c.operation?.id || c.operationId || null,
     operation: typeCfg.label,
     sousLibelle,
@@ -139,26 +152,13 @@ function Badge({ children, green, blue, orange }) {
 
 export default function CommissionAd() {
   const navigate = useNavigate()
-
   const [activeCommissionTab, setActiveCommissionTab] = useState("tous")
   const [activeCommissionFilter, setActiveCommissionFilter] = useState("tous")
 
-  // ✅ Nom de l'entreprise connectée, récupéré dynamiquement (affiché sous le titre)
-  const [companyName, setCompanyName] = useState("")
-
-  const fetchCompanyName = useCallback(async () => {
-    try {
-      const profile = await fetchProfile()
-      // ⚠️ À CONFIRMER : forme exacte du profil (ici profile.company.name)
-      setCompanyName(profile?.company?.name || "-")
-    } catch {
-      setCompanyName("-")
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchCompanyName()
-  }, [fetchCompanyName])
+  // ✅ Opérateur connecté (agent ou compagnie), résolu une seule fois
+  const operatorRef = useRef(null)
+  // Nom affiché sous le titre : nom de l'agent ou de la compagnie
+  const [operatorName, setOperatorName] = useState("")
 
   const [commissions,           setCommissions]           = useState([])
   const [commissionsLoading,    setCommissionsLoading]    = useState(false)
@@ -175,9 +175,20 @@ export default function CommissionAd() {
       const { token } = getAuthData()
       if (!token) throw new Error("Token manquant")
 
-      const companyId = await resolveCompanyId()
+      // Résout l'opérateur connecté une seule fois (agent ou compagnie)
+      let operator = operatorRef.current
+      if (!operator) {
+        operator = await resolveOperator()
+        operatorRef.current = operator
+        setOperatorName(operator.name)
+      }
 
-      const res = await axios.get(COMPANY_COMMISSIONS_HISTORY_API(companyId), {
+      const url =
+        operator.kind === "agent"
+          ? AGENT_COMMISSIONS_HISTORY_API(operator.id)
+          : COMPANY_COMMISSIONS_HISTORY_API(operator.id)
+
+      const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         params: { page: commissionsPage, limit: commissionsLimit },
       })
@@ -190,8 +201,16 @@ export default function CommissionAd() {
       setCommissionsTotal(meta.total ?? list.length)
       setCommissionsTotalPages(meta.totalPages ?? meta.lastPage ?? 1)
     } catch (err) {
-      setCommissionsError(err?.response?.data?.description || err.message || "Impossible de charger les commissions")
-      setCommissions([])
+      // 404 = l'API n'a trouvé aucune commission pour cet opérateur :
+      // ce n'est pas une erreur, on affiche simplement "aucune commission".
+      if (err?.response?.status === 404) {
+        setCommissions([])
+        setCommissionsTotal(0)
+        setCommissionsTotalPages(1)
+      } else {
+        setCommissionsError(err?.response?.data?.description || err.message || "Impossible de charger les commissions")
+        setCommissions([])
+      }
     } finally {
       setCommissionsLoading(false)
     }
@@ -228,9 +247,6 @@ export default function CommissionAd() {
     return categorieOk && statutOk
   })
 
-  // ✅ AJOUTÉ : redirige vers la page de détail de l'opération liée à la
-  // commission (route /detail_com_ad/:id → composant Detail_com_ad, qui
-  // réutilise le même pattern que Detail_ope_commercant : GET /operations/:id).
   const handleViewDetail = (item) => {
     if (!item.operationId) return
     navigate(`/detail_com_ad/${item.operationId}`)
@@ -240,7 +256,7 @@ export default function CommissionAd() {
     <div className="p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6 bg-gray-50 min-h-screen">
       <div>
         <h1 className="text-xl sm:text-2xl font-semibold">Vos commissions</h1>
-        <p className="text-gray-500 text-sm sm:text-base">{companyName}</p>
+        <p className="text-gray-500 text-sm sm:text-base">{operatorName}</p>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6 space-y-5 sm:space-y-6">
@@ -346,7 +362,11 @@ export default function CommissionAd() {
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan="5" className="text-center py-8 text-gray-400">Aucune commission trouvée</td>
+                      <td colSpan="5" className="text-center py-8 text-gray-400">
+                        {commissions.length === 0
+                          ? "Aucune commission pour le moment"
+                          : "Aucune commission ne correspond à ce filtre"}
+                      </td>
                     </tr>
                   )}
                 </tbody>

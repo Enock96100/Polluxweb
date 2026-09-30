@@ -3,11 +3,12 @@ import { useNavigate, useParams } from "react-router-dom"
 import { PlusCircle, ChevronDown, CheckCircle, AlertCircle, X, Building2, Layers, ArrowLeft } from "lucide-react"
 import axios from "axios"
 import { getAuthData, fetchProfile } from "./auth"
+import useAuth from "../context/auth/utils"
 
-const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/dev/api/products/sub-products"
-const SUBPRODUCT_BULK_API = "https://youapi.youneed.app/pollux/dev/api/products/sub-products/bulk"
-const BANK_API             = "https://youapi.youneed.app/pollux/dev/api/products/banks"
-const FORMULA_API          = "https://youapi.youneed.app/pollux/dev/api/prepairs-formula/service"
+const SUBPRODUCT_API      = "https://youapi.youneed.app/pollux/prod/api/products/sub-products"
+const SUBPRODUCT_BULK_API = "https://youapi.youneed.app/pollux/prod/api/products/sub-products/bulk"
+const BANK_API             = "https://youapi.youneed.app/pollux/prod/api/products/banks"
+const FORMULA_API          = "https://youapi.youneed.app/pollux/prod/api/prepairs-formula/service"
 
 /* ===== HOOK NOTIFICATION ===== */
 function useNotification() {
@@ -283,6 +284,23 @@ export default function CartePrePayeePage() {
   const { id: serviceId } = useParams()
   const navigate = useNavigate()
   const { notif, showSuccess, showError, dismiss } = useNotification()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
+
+  // BANK_CREATE : code confirmé dans le catalogue (module BANK_MANAGEMENT).
+  const canCreateBank = can("BANK_CREATE")
+
+  // ⚠️ À CONFIRMER : le catalogue de permissions fourni ne contient aucun
+  // code dédié à la création d'une "formule de carte prépayée"
+  // (/prepairs-formula/service) ni à la génération en masse de cartes
+  // (/products/sub-products/bulk). On utilise SUBPRODUCT_CREATE comme
+  // proxy le plus proche (les formules et cartes prépayées sont gérées
+  // dans le même écran que les sous-produits). À corriger avec le vrai
+  // code dès qu'il sera confirmé côté backend.
+  const canCreateFormula = can("SUBPRODUCT_CREATE")
+  const canGenerateCards = can("SUBPRODUCT_CREATE")
 
   const [banks,    setBanks]    = useState([])
   const [formulas, setFormulas] = useState([])
@@ -471,11 +489,13 @@ export default function CartePrePayeePage() {
                 <Building2 size={18} className="text-[#1EA4DC] shrink-0" />
                 <h3 className="text-sm sm:text-base font-semibold text-gray-900">Banque</h3>
               </div>
-              <button type="button" onClick={() => setCreateBanqueModal(true)}
-                className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
-                <PlusCircle size={16} />
-                Nouvelle
-              </button>
+              {canCreateBank && (
+                <button type="button" onClick={() => setCreateBanqueModal(true)}
+                  className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
+                  <PlusCircle size={16} />
+                  Nouvelle
+                </button>
+              )}
             </div>
             <p className="text-xs text-gray-400">Sélectionner la banque émettrice</p>
             <div className="relative">
@@ -490,7 +510,9 @@ export default function CartePrePayeePage() {
             </div>
             {banks.length === 0 && (
               <p className="text-xs text-gray-400 italic">
-                Aucune banque enregistrée — cliquez sur <strong>Nouvelle</strong> pour en créer une.
+                {canCreateBank
+                  ? <>Aucune banque enregistrée — cliquez sur <strong>Nouvelle</strong> pour en créer une.</>
+                  : "Aucune banque enregistrée."}
               </p>
             )}
           </div>
@@ -502,11 +524,13 @@ export default function CartePrePayeePage() {
                 <Layers size={18} className="text-[#1EA4DC] shrink-0" />
                 <h3 className="text-sm sm:text-base font-semibold text-gray-900">Formule carte</h3>
               </div>
-              <button type="button" onClick={() => setCreateFormuleModal(true)}
-                className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
-                <PlusCircle size={16} />
-                Nouvelle
-              </button>
+              {canCreateFormula && (
+                <button type="button" onClick={() => setCreateFormuleModal(true)}
+                  className="flex items-center gap-1 text-xs text-[#1EA4DC] hover:opacity-75 transition-opacity">
+                  <PlusCircle size={16} />
+                  Nouvelle
+                </button>
+              )}
             </div>
             <p className="text-xs text-gray-400">Sélectionner la formule tarifaire</p>
             <div className="relative">
@@ -522,7 +546,9 @@ export default function CartePrePayeePage() {
             {formulas.length === 0 && (
               <p className="text-xs text-gray-400 italic">
                 {serviceId
-                  ? "Aucune formule pour ce service — cliquez sur Nouvelle pour en créer une."
+                  ? (canCreateFormula
+                      ? "Aucune formule pour ce service — cliquez sur Nouvelle pour en créer une."
+                      : "Aucune formule pour ce service.")
                   : "Sélectionnez d'abord un service pour afficher les formules."}
               </p>
             )}
@@ -601,10 +627,12 @@ export default function CartePrePayeePage() {
             className="w-full sm:w-auto border border-gray-200 px-6 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
             Annuler
           </button>
-          <button onClick={handleSubmit} disabled={loading}
-            className="w-full sm:w-auto bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60 hover:bg-[#179acc] transition-colors">
-            {loading ? "Création en cours..." : "Générer la carte"}
-          </button>
+          {canGenerateCards && (
+            <button onClick={handleSubmit} disabled={loading}
+              className="w-full sm:w-auto bg-[#1EA4DC] text-white px-6 py-2 rounded-lg text-sm disabled:opacity-60 hover:bg-[#179acc] transition-colors">
+              {loading ? "Création en cours..." : "Générer la carte"}
+            </button>
+          )}
         </div>
 
       </div>

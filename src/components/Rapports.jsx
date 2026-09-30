@@ -60,7 +60,7 @@ import {
   Cell,
 } from "recharts"
 
-const BASE_URL = "https://youapi.youneed.app/pollux/dev/api"
+const BASE_URL = "https://youapi.youneed.app/pollux/prod/api"
 
 const dashboardUrl = (companyId) => `${BASE_URL}/reports/company/dashboard/${companyId}`
 const financialUrl = (companyId) => `${BASE_URL}/reports/company/financial/${companyId}`

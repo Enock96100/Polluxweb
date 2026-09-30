@@ -20,9 +20,10 @@ import { createPortal } from "react-dom"
 import axios from "axios"
 import { getAuthData, fetchProfile } from "./auth"
 import { useNavigate } from "react-router-dom"
+import useAuth from "../context/auth/utils"
 
-const API_URL        = "https://youapi.youneed.app/pollux/dev/api/products/services"
-const SUBPRODUCT_API = "https://youapi.youneed.app/pollux/dev/api/products/sub-products"
+const API_URL        = "https://youapi.youneed.app/pollux/prod/api/products/services"
+const SUBPRODUCT_API = "https://youapi.youneed.app/pollux/prod/api/products/sub-products"
 
 /* ══════════════════════════════════════════════
    SYSTÈME DE NOTIFICATION CENTRALISÉ
@@ -74,6 +75,10 @@ function NotificationBanner({ notif, onDismiss }) {
 export default function Produits() {
   const navigate = useNavigate()
   const { notif, showSuccess, showError, dismiss } = useNotification()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
 
   const [activeTab,    setActiveTab]    = useState("produits")
   const [products,     setProducts]     = useState([])
@@ -111,7 +116,7 @@ export default function Produits() {
       }
       if (!companyId) throw new Error("CompanyId manquant")
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/products/services/company/${companyId}`,
+        `https://youapi.youneed.app/pollux/prod/api/products/services/company/${companyId}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       setProducts(Array.isArray(response?.data?.data) ? response.data.data : [])
@@ -139,7 +144,7 @@ export default function Produits() {
       }
       if (!companyId) throw new Error("CompanyId manquant")
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/products/sub-products/company/${companyId}`,
+        `https://youapi.youneed.app/pollux/prod/api/products/sub-products/company/${companyId}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
       setSubProducts(Array.isArray(response?.data?.data) ? response.data.data : [])
@@ -379,6 +384,9 @@ export default function Produits() {
     }
   }
 
+  // SERVICE_CREATE (onglet Services) / SUBPRODUCT_CREATE (onglet Produits)
+  const canAdd = activeTab === "produits" ? can("SERVICE_CREATE") : can("SUBPRODUCT_CREATE")
+
   /* ================= RENDER ================= */
   return (
     <div className="w-full max-w-full overflow-x-hidden p-3 sm:p-4 lg:p-8 space-y-4 sm:space-y-6">
@@ -402,13 +410,15 @@ export default function Produits() {
           <h2 className="font-semibold text-base sm:text-lg">
             {activeTab === "produits" ? "Catégories de Services" : "Produits"}
           </h2>
-          <button
-            onClick={handleAddClick}
-            className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm sm:text-base whitespace-nowrap w-full sm:w-auto"
-          >
-            <Plus size={18} />
-            {activeTab === "produits" ? "Ajouter nouveau service" : "Ajouter nouveau produit"}
-          </button>
+          {canAdd && (
+            <button
+              onClick={handleAddClick}
+              className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm sm:text-base whitespace-nowrap w-full sm:w-auto"
+            >
+              <Plus size={18} />
+              {activeTab === "produits" ? "Ajouter nouveau service" : "Ajouter nouveau produit"}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row justify-between gap-3 sm:gap-4">
@@ -686,11 +696,27 @@ export default function Produits() {
    (createPortal) directement dans <body>, en position `fixed`. Le menu
    n'est donc plus soumis à l'overflow du tableau et reste toujours
    entièrement visible, y compris sur mobile.
+
+   Chaque action (Voir détails / Modifier / Supprimer) est désormais
+   conditionnée à une permission via showDetail/showEdit/showDelete —
+   si aucune action n'est autorisée pour un item donné, le bouton "..."
+   n'est même pas rendu.
 */
 
 const ACTION_MENU_PORTAL_CLASS = "action-menu-dropdown-portal"
 
-function ActionMenu({ item, onEdit, onDelete, onDetail, onToggleStatus, isOpen, onToggle }) {
+function ActionMenu({
+  item,
+  onEdit,
+  onDelete,
+  onDetail,
+  onToggleStatus,
+  isOpen,
+  onToggle,
+  showDetail = true,
+  showEdit = true,
+  showDelete = true,
+}) {
   const buttonRef = useRef(null)
   const menuRef   = useRef(null)
   const [coords, setCoords] = useState(null) // { top, left, openUpward }
@@ -734,6 +760,10 @@ function ActionMenu({ item, onEdit, onDelete, onDetail, onToggleStatus, isOpen, 
     }
   }, [isOpen, computePosition])
 
+  // Si aucune action n'est autorisée pour cet item, on n'affiche même pas
+  // le bouton "..." plutôt qu'un menu vide inutile.
+  if (!showDetail && !showEdit && !showDelete && !onToggleStatus) return null
+
   return (
     <div className="relative inline-flex">
       <button
@@ -755,20 +785,24 @@ function ActionMenu({ item, onEdit, onDelete, onDetail, onToggleStatus, isOpen, 
             left: coords.left,
           }}
         >
-          <button
-            type="button"
-            onClick={() => { onDetail(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-          >
-            <Eye size={16} className="text-gray-500" /> Voir détails
-          </button>
-          <button
-            type="button"
-            onClick={() => { onEdit(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-          >
-            <Pencil size={16} className="text-gray-500" /> Modifier
-          </button>
+          {showDetail && (
+            <button
+              type="button"
+              onClick={() => { onDetail(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+            >
+              <Eye size={16} className="text-gray-500" /> Voir détails
+            </button>
+          )}
+          {showEdit && (
+            <button
+              type="button"
+              onClick={() => { onEdit(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+            >
+              <Pencil size={16} className="text-gray-500" /> Modifier
+            </button>
+          )}
           {onToggleStatus && (
             <>
               <div className="my-1 border-t border-gray-100" />
@@ -789,14 +823,18 @@ function ActionMenu({ item, onEdit, onDelete, onDetail, onToggleStatus, isOpen, 
               </button>
             </>
           )}
-          <div className="my-1 border-t border-gray-100" />
-          <button
-            type="button"
-            onClick={() => { onDelete(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
-          >
-            <Trash2 size={16} /> Supprimer
-          </button>
+          {showDelete && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                type="button"
+                onClick={() => { onDelete(item); onToggle() }}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 size={16} /> Supprimer
+              </button>
+            </>
+          )}
         </div>,
         document.body
       )}
@@ -818,6 +856,12 @@ function ActionMenu({ item, onEdit, onDelete, onDetail, onToggleStatus, isOpen, 
 function ProductsTable({ data = [], onEdit, onDelete, onDetail, onToggleStatus }) {
   const [openRow, setOpenRow] = useState(null)
   const tableRef = useRef(null)
+  // SERVICE_MANAGEMENT : ce tableau gère des "services" (onglet "Services")
+  const { can } = useAuth()
+  const canView   = can("SERVICE_READ")
+  const canEdit   = can("SERVICE_UPDATE")
+  const canDelete = can("SERVICE_DELETE")
+  const canToggle = can("SERVICE_TOGGLE_STATUS")
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -863,7 +907,10 @@ function ProductsTable({ data = [], onEdit, onDelete, onDetail, onToggleStatus }
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onDetail={onDetail}
-                    onToggleStatus={onToggleStatus}
+                    onToggleStatus={canToggle ? onToggleStatus : undefined}
+                    showDetail={canView}
+                    showEdit={canEdit}
+                    showDelete={canDelete}
                     isOpen={openRow === item.id}
                     onToggle={() => setOpenRow(openRow === item.id ? null : item.id)}
                   />
@@ -884,6 +931,11 @@ function ProductsTable({ data = [], onEdit, onDelete, onDetail, onToggleStatus }
 function SubProductsTable({ data = [], onEdit, onDelete, onDetail }) {
   const [openRow, setOpenRow] = useState(null)
   const tableRef = useRef(null)
+  // SUBPRODUCT_MANAGEMENT : ce tableau gère des "sous-produits" (onglet "Produits")
+  const { can } = useAuth()
+  const canView   = can("SUBPRODUCT_READ")
+  const canEdit   = can("SUBPRODUCT_UPDATE")
+  const canDelete = can("SUBPRODUCT_DELETE")
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -930,6 +982,9 @@ function SubProductsTable({ data = [], onEdit, onDelete, onDetail }) {
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onDetail={onDetail}
+                    showDetail={canView}
+                    showEdit={canEdit}
+                    showDelete={canDelete}
                     isOpen={openRow === item.id}
                     onToggle={() => setOpenRow(openRow === item.id ? null : item.id)}
                   />

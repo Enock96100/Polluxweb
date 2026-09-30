@@ -116,7 +116,7 @@ console.log("Token found:", token);
         }
 console.log("Fetching dashboard data for companyId:", companyId);
         const response = await axios.get(
-          `https://youapi.youneed.app/pollux/dev/api/reports/company/dashboard/${companyId}`,
+          `https://youapi.youneed.app/pollux/prod/api/reports/company/dashboard/${companyId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

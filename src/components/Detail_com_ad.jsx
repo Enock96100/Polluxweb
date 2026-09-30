@@ -34,7 +34,7 @@ import { getAuthData, fetchProfile } from "./auth"
 ═══════════════════════════════════════════════ */
 
 const COMPANY_COMMISSIONS_HISTORY_API = (companyId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/companies/${companyId}/history`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/companies/${companyId}/history`
 
 const HISTORY_PAGE_LIMIT = 20
 const HISTORY_MAX_PAGES_SAFEGUARD = 200 // garde-fou anti-boucle infinie

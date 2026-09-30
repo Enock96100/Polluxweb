@@ -12,10 +12,11 @@ import {
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import { useNavigate } from "react-router-dom"
+import useAuth from "../context/auth/utils"
 
 /* ===================== CONFIG API ===================== */
 
-const BASE_URL = "https://youapi.youneed.app/pollux/dev/api"
+const BASE_URL = "https://youapi.youneed.app/pollux/prod/api"
 
 // Mapping UI label → valeur API pour operationType
 // ⚠️ SYNCHRONISÉ avec l'enum réellement documenté par le back (Swagger) :
@@ -207,6 +208,16 @@ function mapOperation(op) {
 
 export default function FileDeValidation() {
   const navigate = useNavigate()
+
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  // ⚠️ Adapter OPERATION_READ / OPERATION_DELETE aux codes réels exposés
+  // par le back si différents (même logique que SERVICE_READ/DELETE
+  // dans Produits.jsx).
+  const { can } = useAuth()
+  const canViewOperation   = can("OPERATION_READ")
+  const canDeleteOperation = can("OPERATION_DELETE")
 
   // Onglet statut actif
   const [activeTab, setActiveTab] = useState("En attente")
@@ -503,6 +514,8 @@ export default function FileDeValidation() {
               data={filteredData}
               start={start}
               onDetail={handleDetail}
+              canView={canViewOperation}
+              canDelete={canDeleteOperation}
             />
           ) : activeOperationType === 1 ? (
             <TableReapprovisionnement
@@ -510,6 +523,7 @@ export default function FileDeValidation() {
               data={filteredData}
               start={start}
               onDetail={handleDetail}
+              canView={canViewOperation}
             />
           ) : isTableType1 ? (
             <TableType1
@@ -517,6 +531,7 @@ export default function FileDeValidation() {
               data={filteredData}
               start={start}
               onDetail={handleDetail}
+              canView={canViewOperation}
             />
           ) : isTableType2 ? (
             <TableType2
@@ -524,6 +539,7 @@ export default function FileDeValidation() {
               data={filteredData}
               start={start}
               onDetail={handleDetail}
+              canView={canViewOperation}
             />
           ) : null}
         </div>
@@ -546,7 +562,7 @@ export default function FileDeValidation() {
 
 /* ===================== TABLEAUX (style Produits.jsx : thead bleu, lignes alternées, hover bleu) ===================== */
 
-function TableDefault({ loading, data, start, onDetail }) {
+function TableDefault({ loading, data, start, onDetail, canView, canDelete }) {
   return (
     <table className="table-auto min-w-[820px] w-full text-sm">
       <thead className="bg-[#1EA4DC] text-white">
@@ -573,6 +589,8 @@ function TableDefault({ loading, data, start, onDetail }) {
               alt={i % 2 !== 0}
               onDetail={() => onDetail(item.id)}
               onSupprimer={() => console.log("Supprimer :", item.id)}
+              canView={canView}
+              canDelete={canDelete}
             />
           ))
         ) : (
@@ -583,7 +601,7 @@ function TableDefault({ loading, data, start, onDetail }) {
   )
 }
 
-function TableReapprovisionnement({ loading, data, start, onDetail }) {
+function TableReapprovisionnement({ loading, data, start, onDetail, canView }) {
   return (
     <table className="table-auto min-w-[720px] w-full text-sm">
       <thead className="bg-[#1EA4DC] text-white">
@@ -607,6 +625,7 @@ function TableReapprovisionnement({ loading, data, start, onDetail }) {
               id={start + i + 1}
               alt={i % 2 !== 0}
               onDetail={() => onDetail(item.id)}
+              canView={canView}
             />
           ))
         ) : (
@@ -617,7 +636,7 @@ function TableReapprovisionnement({ loading, data, start, onDetail }) {
   )
 }
 
-function TableType1({ loading, data, start, onDetail }) {
+function TableType1({ loading, data, start, onDetail, canView }) {
   return (
     <table className="table-auto min-w-[720px] w-full text-sm">
       <thead className="bg-[#1EA4DC] text-white">
@@ -641,6 +660,7 @@ function TableType1({ loading, data, start, onDetail }) {
               id={start + i + 1}
               alt={i % 2 !== 0}
               onDetail={() => onDetail(item.id)}
+              canView={canView}
             />
           ))
         ) : (
@@ -651,7 +671,7 @@ function TableType1({ loading, data, start, onDetail }) {
   )
 }
 
-function TableType2({ loading, data, start, onDetail }) {
+function TableType2({ loading, data, start, onDetail, canView }) {
   return (
     <table className="table-auto min-w-[720px] w-full text-sm">
       <thead className="bg-[#1EA4DC] text-white">
@@ -675,6 +695,7 @@ function TableType2({ loading, data, start, onDetail }) {
               id={start + i + 1}
               alt={i % 2 !== 0}
               onDetail={() => onDetail(item.id)}
+              canView={canView}
             />
           ))
         ) : (
@@ -727,11 +748,16 @@ function EmptyRow({ colSpan }) {
    (createPortal) directement dans <body>, en position `fixed`. Le menu
    n'est donc plus soumis à l'overflow du tableau et reste toujours
    entièrement visible, y compris sur mobile.
+
+   AJOUT PERMISSIONS (même logique que ActionMenu dans Produits.jsx) :
+   chaque action ("Détail" / "Supprimer") est désormais conditionnée à
+   showDetail/showDelete — si aucune des deux n'est autorisée pour la
+   ligne, le bouton "⋯" n'est même pas rendu.
 */
 
 const ACTION_MENU_PORTAL_CLASS = "row-action-menu-portal"
 
-function RowActionMenu({ onDetail, onSupprimer }) {
+function RowActionMenu({ onDetail, onSupprimer, showDetail = true, showDelete = true }) {
   const [open, setOpen] = useState(false)
   const buttonRef = useRef(null)
   const [coords, setCoords] = useState(null) // { top, left, openUpward }
@@ -784,6 +810,9 @@ function RowActionMenu({ onDetail, onSupprimer }) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [open])
 
+  // Aucune action autorisée pour cette ligne → on n'affiche même pas le "⋯"
+  if (!showDetail && !showDelete) return null
+
   return (
     <div className="relative inline-block">
       <button
@@ -803,18 +832,22 @@ function RowActionMenu({ onDetail, onSupprimer }) {
             left:   coords.left,
           }}
         >
-          <button
-            onClick={() => { setOpen(false); onDetail?.() }}
-            className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <Eye size={16} className="text-gray-500" /> Détail
-          </button>
-          <button
-            onClick={() => { setOpen(false); onSupprimer?.() }}
-            className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
-          >
-            <Trash2 size={16} className="text-red-400" /> Supprimer
-          </button>
+          {showDetail && (
+            <button
+              onClick={() => { setOpen(false); onDetail?.() }}
+              className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Eye size={16} className="text-gray-500" /> Détail
+            </button>
+          )}
+          {showDelete && (
+            <button
+              onClick={() => { setOpen(false); onSupprimer?.() }}
+              className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 size={16} className="text-red-400" /> Supprimer
+            </button>
+          )}
         </div>,
         document.body
       )}
@@ -825,6 +858,7 @@ function RowActionMenu({ onDetail, onSupprimer }) {
 function TransactionRow({
   id, idOperation, operationName, operationDetail, montant,
   operateur, operateurType, date, heure, status, alt, onDetail, onSupprimer,
+  canView, canDelete,
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -870,13 +904,18 @@ function TransactionRow({
         </span>
       </td>
       <td className="px-4 py-3 text-center">
-        <RowActionMenu onDetail={onDetail} onSupprimer={onSupprimer} />
+        <RowActionMenu
+          onDetail={onDetail}
+          onSupprimer={onSupprimer}
+          showDetail={canView}
+          showDelete={canDelete}
+        />
       </td>
     </tr>
   )
 }
 
-function ReapprovisionnementRow({ id, operationName, operationDetail, montant, operateurType, date, status, alt, onDetail }) {
+function ReapprovisionnementRow({ id, operationName, operationDetail, montant, operateurType, date, status, alt, onDetail, canView }) {
   return (
     <tr className={`${alt ? "bg-gray-50" : "bg-white"} hover:bg-blue-50 transition-colors`}>
       <td className="px-4 py-3 font-semibold text-gray-700 text-center text-sm whitespace-nowrap">{id}</td>
@@ -900,15 +939,17 @@ function ReapprovisionnementRow({ id, operationName, operationDetail, montant, o
         </span>
       </td>
       <td className="px-4 py-3 text-center">
-        <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
-          <Eye size={18} />
-        </button>
+        {canView && (
+          <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
+            <Eye size={18} />
+          </button>
+        )}
       </td>
     </tr>
   )
 }
 
-function TableType1Row({ id, operationName, operationDetail, operateurType, bankName, date, status, alt, onDetail }) {
+function TableType1Row({ id, operationName, operationDetail, operateurType, bankName, date, status, alt, onDetail, canView }) {
   return (
     <tr className={`${alt ? "bg-gray-50" : "bg-white"} hover:bg-blue-50 transition-colors`}>
       <td className="px-4 py-3 font-semibold text-gray-700 text-center text-sm whitespace-nowrap">{id}</td>
@@ -931,15 +972,17 @@ function TableType1Row({ id, operationName, operationDetail, operateurType, bank
         </span>
       </td>
       <td className="px-4 py-3 text-center">
-        <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
-          <Eye size={18} />
-        </button>
+        {canView && (
+          <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
+            <Eye size={18} />
+          </button>
+        )}
       </td>
     </tr>
   )
 }
 
-function TableType2Row({ id, operationName, operationDetail, operateurType, date, status, alt, onDetail }) {
+function TableType2Row({ id, operationName, operationDetail, operateurType, date, status, alt, onDetail, canView }) {
   return (
     <tr className={`${alt ? "bg-gray-50" : "bg-white"} hover:bg-blue-50 transition-colors`}>
       <td className="px-4 py-3 font-semibold text-gray-700 text-center text-sm whitespace-nowrap">{id}</td>
@@ -959,9 +1002,11 @@ function TableType2Row({ id, operationName, operationDetail, operateurType, date
         </span>
       </td>
       <td className="px-4 py-3 text-center">
-        <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
-          <Eye size={18} />
-        </button>
+        {canView && (
+          <button onClick={onDetail} className="text-gray-400 hover:text-[#1EA4DC] transition-colors p-1 rounded-lg hover:bg-gray-100">
+            <Eye size={18} />
+          </button>
+        )}
       </td>
     </tr>
   )

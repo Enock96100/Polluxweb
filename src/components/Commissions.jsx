@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
+import useAuth from "../context/auth/utils"
 
 /* ===================== HELPERS ===================== */
 
@@ -77,6 +78,22 @@ function NotificationBanner({ notif, onDismiss }) {
 /* ===================== MAIN COMPONENT ===================== */
 
 export default function GestionCommissions() {
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
+
+  // COMMISSION_MANAGEMENT : gestion des grilles/tranches de commission
+  const canCreateGrid = can("COMMISSION_GRID_CREATE")
+  const canUpdateGrid = can("COMMISSION_GRID_UPDATE")
+  const canDeleteGrid = can("COMMISSION_GRID_DELETE")
+  // ⚠️ À CONFIRMER : aucun code dédié dans le catalogue pour "assigner un
+  // taux à un partenaire" (POST /commissions/distributor-assignments ou
+  // /merchant-assignments) — COMMISSION_GRID_UPDATE réutilisé comme proxy
+  // le plus proche (même écran, même responsabilité de configuration des
+  // commissions).
+  const canAssignRate = can("COMMISSION_GRID_UPDATE")
+
   const [activeTab, setActiveTab] = useState("Taux")
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -168,7 +185,7 @@ export default function GestionCommissions() {
       console.log("COMPANY ID:", companyId)
 
       const res = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/products/services/company/${companyId}`,
+        `https://youapi.youneed.app/pollux/prod/api/products/services/company/${companyId}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
 
@@ -232,7 +249,7 @@ export default function GestionCommissions() {
       console.log("FETCH COMMISSIONS POUR SERVICE ID:", selectedService)
 
       const res = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/commissions/rates/service/${selectedService}`,
+        `https://youapi.youneed.app/pollux/prod/api/commissions/rates/service/${selectedService}`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
 
@@ -244,10 +261,6 @@ export default function GestionCommissions() {
       const activeOnly = apiData.filter((item) => item.isActive === true)
 
       // Mapping basé sur la vraie structure API
-      // ⚠️ IMPORTANT : on garde l'UUID réel de la tranche (formulaId) séparément du
-      // numéro d'affichage (id), car l'UUID est nécessaire pour l'assignation, la modification
-      // ET la désactivation.
-      // On garde aussi minAmount / maxAmount bruts pour pré-remplir le formulaire de modification.
       const mappedData = activeOnly.map((item, index) => ({
         id: index + 1,
         formulaId: item.id, // ✅ UUID réel de la tranche (= serviceCommissionRateId attendu par l'API d'assignation)
@@ -287,7 +300,7 @@ export default function GestionCommissions() {
       console.log("FETCH STATISTIQUES POUR SERVICE ID:", selectedService)
 
       const res = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/commissions/rates/service/${selectedService}/stats`,
+        `https://youapi.youneed.app/pollux/prod/api/commissions/rates/service/${selectedService}/stats`,
         { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       )
 
@@ -297,7 +310,6 @@ export default function GestionCommissions() {
 
       // Adaptation et mapping dynamique des données pour le tableau Statistiques
       const mappedStats = apiData.map((item, index) => {
-        // Extraction optionnelle ou calcul si vos champs de commissions existent dans votre objet
         const distComm = item.stats?.totalDistributorCommission || 0
         const merchComm = item.stats?.totalMerchantCommission || 0
         const entComm = item.stats?.totalCompanyCommission || 0
@@ -307,7 +319,7 @@ export default function GestionCommissions() {
           id: index + 1,
           tranche: item.name || " ",
           fixe: `${item.minAmount || 0} - ${item.maxAmount || 0} FCFA`,
-          users: item.stats?.usageCount || 0, // Exemple d'utilisation de vos compteurs existants
+          users: item.stats?.usageCount || 0,
           comDist: `${distComm} F`,
           comComm: `${merchComm} F`,
           comEnt: `${entComm} F`,
@@ -329,9 +341,6 @@ export default function GestionCommissions() {
   }
 
   /* ===================== CREATION / MODIFICATION D'UNE TRANCHE ===================== */
-  // ✅ Même formulaire (modal) pour créer (POST) et modifier (PUT) une tranche.
-  // editingTranche === null  -> POST /commissions/rates            (création)
-  // editingTranche !== null  -> PUT  /commissions/rates/{formulaId} (modification)
 
   const handleOpenCreateModal = () => {
     setEditingTranche(null)
@@ -365,7 +374,7 @@ export default function GestionCommissions() {
         console.log("MODIFICATION DE LA TRANCHE:", editingTranche.formulaId, payload)
 
         res = await axios.put(
-          `https://youapi.youneed.app/pollux/dev/api/commissions/rates/${editingTranche.formulaId}`,
+          `https://youapi.youneed.app/pollux/prod/api/commissions/rates/${editingTranche.formulaId}`,
           payload,
           {
             headers: {
@@ -385,7 +394,7 @@ export default function GestionCommissions() {
         console.log("CRÉATION D'UNE NOUVELLE TRANCHE:", createPayload)
 
         res = await axios.post(
-          "https://youapi.youneed.app/pollux/dev/api/commissions/rates",
+          "https://youapi.youneed.app/pollux/prod/api/commissions/rates",
           createPayload,
           {
             headers: {
@@ -435,8 +444,8 @@ export default function GestionCommissions() {
       // Endpoint différent selon le type de partenaire choisi
       const url =
         partnerType === "DISTRIBUTEUR"
-          ? `https://youapi.youneed.app/pollux/dev/api/distributors/by-company/${companyId}`
-          : `https://youapi.youneed.app/pollux/dev/api/merchants/companies/${companyId}`
+          ? `https://youapi.youneed.app/pollux/prod/api/distributors/by-company/${companyId}`
+          : `https://youapi.youneed.app/pollux/prod/api/merchants/companies/${companyId}`
 
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -506,12 +515,6 @@ export default function GestionCommissions() {
   ).toFixed(2)
 
   // Soumission du formulaire d'assignation
-  // ✅ CORRIGÉ : l'API d'assignation carte prépayée attend l'UUID de la tranche
-  // sous la clé "serviceCommissionRateId" (confirmé par l'implémentation existante
-  // dans DetailDistributeur.jsx / AssignCardRateModal, qui utilise avec succès le
-  // même endpoint POST /commissions/distributor-assignments). L'ancienne clé
-  // "gridId" n'était pas reconnue par le backend, d'où l'erreur systématique
-  // "L'ID de la grille est requis".
   const handleAssignSubmit = async (e) => {
     e.preventDefault()
     assignNotif.dismiss()
@@ -540,11 +543,9 @@ export default function GestionCommissions() {
 
       const isDistributeur = assignPartnerType === "DISTRIBUTEUR"
 
-      // Endpoint confirmé pour un distributeur (repris tel quel de DetailDistributeur.jsx).
-      // Endpoint miroir supposé pour un commerçant tant qu'il n'est pas confirmé.
       const url = isDistributeur
-        ? "https://youapi.youneed.app/pollux/dev/api/commissions/distributor-assignments"
-        : "https://youapi.youneed.app/pollux/dev/api/commissions/merchant-assignments"
+        ? "https://youapi.youneed.app/pollux/prod/api/commissions/distributor-assignments"
+        : "https://youapi.youneed.app/pollux/prod/api/commissions/merchant-assignments"
 
       const payload = {
         ...(isDistributeur
@@ -594,7 +595,6 @@ export default function GestionCommissions() {
 
   /* ===================== ACTIONS SUR UNE TRANCHE (Taux) ===================== */
 
-  // ✅ Utilise le même modal / formulaire que la création, mais pré-rempli + mode PUT
   const handleModifierTranche = (tranche) => {
     setEditingTranche(tranche)
     setFormData({
@@ -608,8 +608,6 @@ export default function GestionCommissions() {
 
   /* ===================== DÉSACTIVATION D'UNE TRANCHE (DELETE + CONFIRMATION) ===================== */
 
-  // ✅ Le clic sur "Désactiver" n'appelle plus l'API directement : il ouvre d'abord
-  // une pop-up de confirmation contenant le nom de la tranche concernée.
   const handleDesactiverTranche = (tranche) => {
     setTrancheToDeactivate(tranche)
     deactivateNotif.dismiss()
@@ -623,8 +621,6 @@ export default function GestionCommissions() {
     deactivateNotif.dismiss()
   }
 
-  // ✅ Appel réel de désactivation, déclenché uniquement après confirmation de l'utilisateur.
-  // Endpoint : DELETE /commissions/rates/{formulaId}
   const handleConfirmDeactivate = async () => {
     if (!trancheToDeactivate?.formulaId) {
       deactivateNotif.showError("L'identifiant de la tranche est introuvable")
@@ -638,7 +634,7 @@ export default function GestionCommissions() {
       console.log("DÉSACTIVATION DE LA TRANCHE:", trancheToDeactivate.formulaId)
 
       const res = await axios.delete(
-        `https://youapi.youneed.app/pollux/dev/api/commissions/rates/${trancheToDeactivate.formulaId}`,
+        `https://youapi.youneed.app/pollux/prod/api/commissions/rates/${trancheToDeactivate.formulaId}`,
         {
           headers: {
             accept: "application/json",
@@ -673,7 +669,6 @@ export default function GestionCommissions() {
   const end = start + rowsPerPage
   const paginatedData = currentData.slice(start, end)
 
-  // ✅ Console log demandé : la liste réellement affichée dans le tableau (page courante)
   console.log(`DONNÉES AFFICHÉES DANS LE TABLEAU [onglet: ${activeTab}, page: ${currentPage}]:`, paginatedData)
 
   const handleTabChange = (tabName) => {
@@ -693,13 +688,15 @@ export default function GestionCommissions() {
           </p>
         </div>
 
-        <button 
-          onClick={handleOpenCreateModal}
-          className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-[#198cb9] transition-all shadow-sm w-full sm:w-auto"
-        >
-          <Plus size={18} />
-          Créer une tranche
-        </button>
+        {canCreateGrid && (
+          <button 
+            onClick={handleOpenCreateModal}
+            className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-[#198cb9] transition-all shadow-sm w-full sm:w-auto"
+          >
+            <Plus size={18} />
+            Créer une tranche
+          </button>
+        )}
       </div>
 
       {/* NAVIGATION INTERNE (TABS) — même style que Produits.jsx */}
@@ -805,6 +802,9 @@ export default function GestionCommissions() {
                       onAssigner={() => handleOpenAssignModal(item)}
                       onModifier={() => handleModifierTranche(item)}
                       onDesactiver={() => handleDesactiverTranche(item)}
+                      canAssignRate={canAssignRate}
+                      canUpdateGrid={canUpdateGrid}
+                      canDeleteGrid={canDeleteGrid}
                     />
                   ))
                 ) : (
@@ -1195,7 +1195,6 @@ export default function GestionCommissions() {
 
 /* ================= COMPOSANTS DE STRUCTURE ================= */
 
-// Style aligné sur le composant Tab de Produits.jsx
 function Tab({ label, active, onClick }) {
   return (
     <button onClick={onClick} className={`px-4 sm:px-6 py-1.5 sm:py-2 rounded-full text-sm sm:text-base whitespace-nowrap ${active ? "bg-white shadow" : "text-gray-500"}`}>
@@ -1205,7 +1204,7 @@ function Tab({ label, active, onClick }) {
 }
 
 /* Ligne pour l'onglet : Taux */
-function CommissionRow({ id, name, range, distributorRate, merchantRate, status, onAssigner, onModifier, onDesactiver }) {
+function CommissionRow({ id, name, range, distributorRate, merchantRate, status, onAssigner, onModifier, onDesactiver, canAssignRate, canUpdateGrid, canDeleteGrid }) {
   const statusClasses =
     status === "Actif"
       ? "bg-green-50 text-green-600 border-green-100"
@@ -1233,6 +1232,9 @@ function CommissionRow({ id, name, range, distributorRate, merchantRate, status,
     action?.()
   }
 
+  // Si aucune action n'est autorisée, on n'affiche même pas le bouton "..."
+  const hasAnyAction = canAssignRate || canUpdateGrid || canDeleteGrid
+
   return (
     <tr className="hover:bg-gray-50/60 transition-colors">
       <td className="px-6 py-4.5 text-gray-500 font-medium whitespace-nowrap">{id}</td>
@@ -1248,37 +1250,47 @@ function CommissionRow({ id, name, range, distributorRate, merchantRate, status,
         </span>
       </td>
       <td className="px-6 py-4.5 text-center relative whitespace-nowrap" ref={menuRef}>
-        <button
-          onClick={() => setIsMenuOpen((prev) => !prev)}
-          className="text-gray-400 hover:text-gray-700 transition-colors p-1 rounded-lg hover:bg-gray-100"
-        >
-          <MoreHorizontal size={20} />
-        </button>
+        {hasAnyAction && (
+          <>
+            <button
+              onClick={() => setIsMenuOpen((prev) => !prev)}
+              className="text-gray-400 hover:text-gray-700 transition-colors p-1 rounded-lg hover:bg-gray-100"
+            >
+              <MoreHorizontal size={20} />
+            </button>
 
-        {isMenuOpen && (
-          <div className="absolute right-6 top-10 z-20 w-44 bg-white border border-gray-100 rounded-xl shadow-lg py-1.5 text-left animate-fadeIn">
-            <button
-              onClick={() => handleActionClick(onAssigner)}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <UserPlus size={16} className="text-[#1EA4DC]" />
-              Assigner
-            </button>
-            <button
-              onClick={() => handleActionClick(onModifier)}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Pencil size={16} className="text-gray-500" />
-              Modifier
-            </button>
-            <button
-              onClick={() => handleActionClick(onDesactiver)}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <Ban size={16} />
-              Désactiver
-            </button>
-          </div>
+            {isMenuOpen && (
+              <div className="absolute right-6 top-10 z-20 w-44 bg-white border border-gray-100 rounded-xl shadow-lg py-1.5 text-left animate-fadeIn">
+                {canAssignRate && (
+                  <button
+                    onClick={() => handleActionClick(onAssigner)}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <UserPlus size={16} className="text-[#1EA4DC]" />
+                    Assigner
+                  </button>
+                )}
+                {canUpdateGrid && (
+                  <button
+                    onClick={() => handleActionClick(onModifier)}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <Pencil size={16} className="text-gray-500" />
+                    Modifier
+                  </button>
+                )}
+                {canDeleteGrid && (
+                  <button
+                    onClick={() => handleActionClick(onDesactiver)}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Ban size={16} />
+                    Désactiver
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </td>
     </tr>
@@ -1308,12 +1320,6 @@ function StatistiqueRow({ id, tranche, fixe, users, comDist, comComm, comEnt, to
 }
 
 /* ================= PAGINATION ================= */
-/*
-   Style aligné sur le fichier "Produits" : boutons discrets (icônes seules,
-   sans bordure), libellé "Par page" masqué sur mobile, état désactivé
-   géré par une classe grisée plutôt que par un simple attribut, et
-   affichage compact "page / totalPages".
-*/
 
 function PaginationFooter({ total, start, end, rowsPerPage, setRowsPerPage, currentPage, setCurrentPage, totalPages }) {
   const isFirstPage = currentPage <= 1

@@ -27,42 +27,42 @@ import { getAuthData, fetchProfile } from "./auth"
   API
 ═══════════════════════════════════════════════ */
 
-const MERCHANT_DETAIL_API      = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}`
-const MERCHANT_OPERATIONS_API  = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}/operations`
-const MERCHANT_CARDS_API       = (id) => `https://youapi.youneed.app/pollux/dev/api/prepaid-cards/merchants/${id}/cards`
-const MERCHANT_SUBPRODUCTS_API = (id) => `https://youapi.youneed.app/pollux/dev/api/products/partners/sub-products/${id}`
-const MERCHANT_PARABOLAS_API   = (id) => `https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas/partners/${id}`
-const MERCHANT_COMMISSIONS_API = (id) => `https://youapi.youneed.app/pollux/dev/api/commissions/merchants/${id}/history`
-const MERCHANT_STATISTICS_API  = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}/statistics`
+const MERCHANT_DETAIL_API      = (id) => `https://youapi.youneed.app/pollux/prod/api/merchants/${id}`
+const MERCHANT_OPERATIONS_API  = (id) => `https://youapi.youneed.app/pollux/prod/api/merchants/${id}/operations`
+const MERCHANT_CARDS_API       = (id) => `https://youapi.youneed.app/pollux/prod/api/prepaid-cards/merchants/${id}/cards`
+const MERCHANT_SUBPRODUCTS_API = (id) => `https://youapi.youneed.app/pollux/prod/api/products/partners/sub-products/${id}`
+const MERCHANT_PARABOLAS_API   = (id) => `https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas/partners/${id}`
+const MERCHANT_COMMISSIONS_API = (id) => `https://youapi.youneed.app/pollux/prod/api/commissions/merchants/${id}/history`
+const MERCHANT_STATISTICS_API  = (id) => `https://youapi.youneed.app/pollux/prod/api/merchants/${id}/statistics`
 
 const MERCHANT_CANAL_RATES_API = (id) =>
-  `https://youapi.youneed.app/pollux/dev/api/canal-commissions/merchants/${id}/assignments`
+  `https://youapi.youneed.app/pollux/prod/api/canal-commissions/merchants/${id}/assignments`
 const MERCHANT_CARD_RATES_API = (id) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/merchant-assignments?merchantId=${id}`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/merchant-assignments?merchantId=${id}`
 
 const CARD_RATE_TRANCHES_API = (serviceId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/rates/service/${serviceId}`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/rates/service/${serviceId}`
 
 const CARD_RATE_ASSIGN_API =
-  `https://youapi.youneed.app/pollux/dev/api/commissions/merchant-assignments`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/merchant-assignments`
 
 const FORMULA_CANALS_API =
-  `https://youapi.youneed.app/pollux/dev/api/formula-canals`
+  `https://youapi.youneed.app/pollux/prod/api/formula-canals`
 
 const CANAL_RATE_ASSIGN_API =
-  `https://youapi.youneed.app/pollux/dev/api/canal-commissions/merchant-assignments`
+  `https://youapi.youneed.app/pollux/prod/api/canal-commissions/merchant-assignments`
 
 // ✅ AJOUT : modification (PATCH) et désactivation (DELETE) d'un taux
 // carte prépayée déjà assigné à un commerçant. Même URL de base que
 // CARD_RATE_ASSIGN_API, avec l'id de l'assignation en suffixe.
 const CARD_RATE_UPDATE_API = (assignmentId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/merchant-assignments/${assignmentId}`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/merchant-assignments/${assignmentId}`
 
 // ✅ AJOUT : modification (PUT) et désactivation (DELETE) d'un taux
 // Canal+ déjà assigné à un commerçant. Même URL de base que
 // CANAL_RATE_ASSIGN_API, avec l'id de l'assignation en suffixe.
 const CANAL_RATE_UPDATE_API = (assignmentId) =>
-  `https://youapi.youneed.app/pollux/dev/api/canal-commissions/merchant-assignments/${assignmentId}`
+  `https://youapi.youneed.app/pollux/prod/api/canal-commissions/merchant-assignments/${assignmentId}`
 
 /* ═══════════════════════════════════════════════
   RÉAPPROVISIONNEMENT DIRECT / LIBÉRATION DE STOCK / ASSIGNATION PARABOLE
@@ -71,10 +71,10 @@ const CANAL_RATE_UPDATE_API = (assignmentId) =>
 ═══════════════════════════════════════════════ */
 
 // ✅ CONFIRMÉ : liste des banques (GET /products/banks)
-const BANKS_LIST_API = `https://youapi.youneed.app/pollux/dev/api/products/banks`
+const BANKS_LIST_API = `https://youapi.youneed.app/pollux/prod/api/products/banks`
 // ✅ CONFIRMÉ : formules carte prépayée d'un service (GET /prepairs-formula/service/:serviceId)
 const FORMULAS_BY_SERVICE_API = (serviceId) =>
-  `https://youapi.youneed.app/pollux/dev/api/prepairs-formula/service/${serviceId}`
+  `https://youapi.youneed.app/pollux/prod/api/prepairs-formula/service/${serviceId}`
 
 // ✅ CORRIGÉ (aligné sur la version distributeur) : un seul endpoint pour la
 // liste des sous-produits disponibles d'un service. Le serviceId reste dans
@@ -82,25 +82,25 @@ const FORMULAS_BY_SERVICE_API = (serviceId) =>
 // une carte) ainsi que status / page / limit sont passés en QUERY PARAMS :
 // /products/sub-products/product/:serviceId?status=AVAILABLE&page=1&bankId=...&prepaidCardFormulaId=...&limit=20
 const SUBPRODUCTS_BY_SERVICE_API = (serviceId) =>
-  `https://youapi.youneed.app/pollux/dev/api/products/sub-products/product/${serviceId}`
+  `https://youapi.youneed.app/pollux/prod/api/products/sub-products/product/${serviceId}`
 
 // ✅ CONFIRMÉ : catalogue des paraboles de l'entreprise
-const PARABOLAS_CATALOG_API = `https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas`
+const PARABOLAS_CATALOG_API = `https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas`
 
 // ✅ CONFIRMÉ (source Flutter fournie) : réapprovisionnement direct d'un commerçant
 // POST /products/merchants/direct-restocking
 const DIRECT_MERCHANT_RESTOCKING_API =
-  `https://youapi.youneed.app/pollux/dev/api/products/merchants/direct-restocking`
+  `https://youapi.youneed.app/pollux/prod/api/products/merchants/direct-restocking`
 
 // ✅ CONFIRMÉ (déjà utilisé dans Partenaires.jsx) : libération de stock
 const RELEASE_MERCHANT_SUBPRODUCTS_API =
-  `https://youapi.youneed.app/pollux/dev/api/products/merchants/sub-products/release`
+  `https://youapi.youneed.app/pollux/prod/api/products/merchants/sub-products/release`
 const RELEASE_MERCHANT_PARABOLAS_API =
-  `https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas/release-from-merchant`
+  `https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas/release-from-merchant`
 
 // ✅ CONFIRMÉ (déjà utilisé dans Partenaires.jsx) : assignation de parabole(s)
 const PARABOLA_ASSIGN_MERCHANT_API =
-  `https://youapi.youneed.app/pollux/dev/api/formula-canals/parabolas/assign-to-merchant`
+  `https://youapi.youneed.app/pollux/prod/api/formula-canals/parabolas/assign-to-merchant`
 
 /* ═══════════════════════════════════════════════
   HELPERS DE FORMATAGE

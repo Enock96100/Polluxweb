@@ -23,47 +23,48 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import axios from "axios"
 import { getAuthData, fetchProfile } from "./auth"
+import useAuth from "../context/auth/utils"
 
-const DIST_API            = "https://youapi.youneed.app/pollux/dev/api/distributors/by-company"
-const MERCHANT_API        = "https://youapi.youneed.app/pollux/dev/api/merchants/companies"
-const DIST_CREATE_API     = "https://youapi.youneed.app/pollux/dev/api/distributors"
-const MERCHANT_CREATE_API = "https://youapi.youneed.app/pollux/dev/api/merchants"
+const DIST_API            = "https://youapi.youneed.app/pollux/prod/api/distributors/by-company"
+const MERCHANT_API        = "https://youapi.youneed.app/pollux/prod/api/merchants/companies"
+const DIST_CREATE_API     = "https://youapi.youneed.app/pollux/prod/api/distributors"
+const MERCHANT_CREATE_API = "https://youapi.youneed.app/pollux/prod/api/merchants"
 
 /**
  * Endpoints de bascule (activation / désactivation) dynamique du statut.
  * Le PATCH est appelé avec { isActive: true|false } dans le body.
  */
-const DIST_TOGGLE_STATUS_API     = (id) => `https://youapi.youneed.app/pollux/dev/api/distributors/${id}/toggle-status`
-const MERCHANT_TOGGLE_STATUS_API = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}/toggle-status`
+const DIST_TOGGLE_STATUS_API     = (id) => `https://youapi.youneed.app/pollux/prod/api/distributors/${id}/toggle-status`
+const MERCHANT_TOGGLE_STATUS_API = (id) => `https://youapi.youneed.app/pollux/prod/api/merchants/${id}/toggle-status`
 
 /**
  * Endpoints de modification (édition) d'un partenaire existant.
  */
-const DIST_UPDATE_API     = (id) => `https://youapi.youneed.app/pollux/dev/api/distributors/${id}`
-const MERCHANT_UPDATE_API = (id) => `https://youapi.youneed.app/pollux/dev/api/merchants/${id}`
+const DIST_UPDATE_API     = (id) => `https://youapi.youneed.app/pollux/prod/api/distributors/${id}`
+const MERCHANT_UPDATE_API = (id) => `https://youapi.youneed.app/pollux/prod/api/merchants/${id}`
 
 /**
  * Endpoints "Services" : liste des services de l'entreprise (par companyId),
  * puis assignation multiple à un distributeur ou à un commerçant.
- * ✅ CONFIRMÉ : GET  /products/services/company/:companyId
- * ✅ CONFIRMÉ : POST /products/distributor/assign-multiple-services  { distributorId, serviceIds: [...] }
- * ✅ CONFIRMÉ : POST /products/merchant/assign-multiple-services     { merchantId, serviceIds: [...] }
+ *  CONFIRMÉ : GET  /products/services/company/:companyId
+ *  CONFIRMÉ : POST /products/distributor/assign-multiple-services  { distributorId, serviceIds: [...] }
+ *  CONFIRMÉ : POST /products/merchant/assign-multiple-services     { merchantId, serviceIds: [...] }
  */
-const SERVICES_LIST_API              = "https://youapi.youneed.app/pollux/dev/api/products/services/company"
-const ASSIGN_SERVICE_DISTRIBUTOR_API = "https://youapi.youneed.app/pollux/dev/api/products/distributor/assign-multiple-services"
-const ASSIGN_SERVICE_MERCHANT_API    = "https://youapi.youneed.app/pollux/dev/api/products/merchant/assign-multiple-services"
+const SERVICES_LIST_API              = "https://youapi.youneed.app/pollux/prod/api/products/services/company"
+const ASSIGN_SERVICE_DISTRIBUTOR_API = "https://youapi.youneed.app/pollux/prod/api/products/distributor/assign-multiple-services"
+const ASSIGN_SERVICE_MERCHANT_API    = "https://youapi.youneed.app/pollux/prod/api/products/merchant/assign-multiple-services"
 
 /**
  * Endpoint "Services assignés à un partenaire" : liste (GET) et retrait (DELETE)
  * d'un service déjà assigné à un distributeur ou un commerçant.
- * ✅ CONFIRMÉ : GET    /products/partners/services/:partnerId?isMerchant=true|false
- * ✅ CONFIRMÉ : DELETE /products/partners/services/:serviceAssignmentId?isMerchant=true|false
+ *  CONFIRMÉ : GET    /products/partners/services/:partnerId?isMerchant=true|false
+ *  CONFIRMÉ : DELETE /products/partners/services/:serviceAssignmentId?isMerchant=true|false
  * isMerchant = true pour un commerçant, false pour un distributeur.
  */
-const PARTNER_SERVICES_API = (id) => `https://youapi.youneed.app/pollux/dev/api/products/partners/services/${id}`
+const PARTNER_SERVICES_API = (id) => `https://youapi.youneed.app/pollux/prod/api/products/partners/services/${id}`
 
 /* ══════════════════════════════════════════════
-   ℹ️ Les actions "Réapprovisionner", "Libérer stock" et "Assigner
+   ℹ Les actions "Réapprovisionner", "Libérer stock" et "Assigner
    parabole" ont été déplacées dans les pages de détail
    (DetailDistributeur.jsx / DetailCommercant.jsx), directement dans la
    section Stock, sur chaque sous-onglet (Carte / Décodeurs / Paraboles).
@@ -1240,6 +1241,25 @@ export default function Partenaires() {
   const [activeTab, setActiveTab] = useState("distributeurs")
   const { notif, showSuccess, showError, dismiss } = useNotification()
 
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  // Les distributeurs et commerçants sont deux ressources distinctes
+  // côté back, donc les codes de permission sont calculés par onglet
+  // actif (même logique que Services/Produits dans Produits.jsx).
+  // ⚠️ Adapter ces codes aux permissions réelles exposées par le back
+  // si elles diffèrent.
+  const { can } = useAuth()
+  const isDistTab = activeTab === "distributeurs"
+
+  const canCreatePartner        = isDistTab ? can("DISTRIBUTOR_CREATE")        : can("MERCHANT_CREATE")
+  const canViewPartner          = isDistTab ? can("DISTRIBUTOR_READ")         : can("MERCHANT_READ")
+  const canEditPartner          = isDistTab ? can("DISTRIBUTOR_UPDATE")       : can("MERCHANT_UPDATE")
+  const canDeletePartner        = isDistTab ? can("DISTRIBUTOR_DELETE")       : can("MERCHANT_DELETE")
+  const canTogglePartnerStatus  = isDistTab ? can("DISTRIBUTOR_TOGGLE_STATUS"): can("MERCHANT_TOGGLE_STATUS")
+  const canAssignPartnerService = isDistTab ? can("DISTRIBUTOR_ASSIGN_SERVICE") : can("MERCHANT_ASSIGN_SERVICE")
+  const canRemovePartnerService = isDistTab ? can("DISTRIBUTOR_REMOVE_SERVICE") : can("MERCHANT_REMOVE_SERVICE")
+
   const [distributeurs, setDistributeurs] = useState([])
   const [commercants,   setCommercants]   = useState([])
   const [loading,       setLoading]       = useState(false)
@@ -1550,7 +1570,7 @@ export default function Partenaires() {
   }
 
   /**
-   * ✅ CONFIRMÉ — Assigne les services cochés au partenaire sélectionné :
+   *  CONFIRMÉ — Assigne les services cochés au partenaire sélectionné :
    * POST /products/distributor/assign-multiple-services { distributorId, serviceIds }
    * POST /products/merchant/assign-multiple-services    { merchantId, serviceIds }
    */
@@ -1592,7 +1612,7 @@ export default function Partenaires() {
   }, [selectedItem, activeTab, showSuccess, showError])
 
   /**
-   * ✅ CONFIRMÉ — Retire les services cochés (déjà assignés) de ce partenaire :
+   *  CONFIRMÉ — Retire les services cochés (déjà assignés) de ce partenaire :
    * DELETE /products/partners/services/:serviceAssignmentId?isMerchant=true|false
    */
   const handleConfirmRemoveService = useCallback(async ({ selectedItems }) => {
@@ -1674,13 +1694,15 @@ export default function Partenaires() {
               <option value="inactive">Inactif</option>
             </select>
 
-            <button
-              onClick={() => setCreateModal(true)}
-              className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap w-full sm:w-auto"
-            >
-              <Plus size={16} />
-              Ajouter partenaire
-            </button>
+            {canCreatePartner && (
+              <button
+                onClick={() => setCreateModal(true)}
+                className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap w-full sm:w-auto"
+              >
+                <Plus size={16} />
+                Ajouter partenaire
+              </button>
+            )}
           </div>
         </div>
 
@@ -1706,6 +1728,12 @@ export default function Partenaires() {
                 togglingIds={togglingIds}
                 onAssignService={handleAssignService}
                 onRemoveService={handleRemoveService}
+                canView={canViewPartner}
+                canEdit={canEditPartner}
+                canDelete={canDeletePartner}
+                canToggle={canTogglePartnerStatus}
+                canAssignService={canAssignPartnerService}
+                canRemoveService={canRemovePartnerService}
               />
             ) : (
               <CommercantTable
@@ -1717,6 +1745,12 @@ export default function Partenaires() {
                 togglingIds={togglingIds}
                 onAssignService={handleAssignService}
                 onRemoveService={handleRemoveService}
+                canView={canViewPartner}
+                canEdit={canEditPartner}
+                canDelete={canDeletePartner}
+                canToggle={canTogglePartnerStatus}
+                canAssignService={canAssignPartnerService}
+                canRemoveService={canRemovePartnerService}
               />
             )}
           </div>
@@ -1816,6 +1850,13 @@ export default function Partenaires() {
 }
 
 /* ===================== ACTION MENU ===================== */
+/*
+   AJOUT PERMISSIONS : chaque entrée du menu ("Voir détails", "Modifier",
+   "Assigner service", "Retirer service", "Activer/Désactiver",
+   "Supprimer") est désormais conditionnée par un flag show* transmis en
+   props (même logique que ActionMenu dans Produits.jsx). Si aucune
+   action n'est autorisée, le bouton "..." n'est même pas rendu.
+*/
 
 function ActionMenu({ 
   item, 
@@ -1828,7 +1869,13 @@ function ActionMenu({
   onAssignService,
   onRemoveService,
   isOpen, 
-  onToggle 
+  onToggle,
+  showDetail = true,
+  showEdit = true,
+  showDelete = true,
+  showToggle = true,
+  showAssignService = true,
+  showRemoveService = true,
 }) {
   const [openUpward, setOpenUpward] = useState(false)
   const containerRef = useRef(null)
@@ -1840,6 +1887,11 @@ function ActionMenu({
       setOpenUpward(spaceBelow < 190)
     }
   }, [isOpen])
+
+  // Aucune action autorisée pour cette ligne → on n'affiche même pas le "..."
+  if (!showDetail && !showEdit && !showAssignService && !showRemoveService && !showToggle && !showDelete) {
+    return null
+  }
 
   return (
     <div className="relative inline-flex" ref={containerRef}>
@@ -1855,68 +1907,84 @@ function ActionMenu({
         <div className={`absolute right-0 z-50 w-48 rounded-xl border border-gray-200 bg-white shadow-xl py-1 max-h-96 overflow-y-auto
           ${openUpward ? "bottom-full mb-2" : "top-full mt-2"}`}
         >
-          <button
-            type="button"
-            onClick={() => { onDetail(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-          >
-            <Eye size={15} className="text-gray-500" /> Voir détails
-          </button>
+          {showDetail && (
+            <button
+              type="button"
+              onClick={() => { onDetail(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+            >
+              <Eye size={15} className="text-gray-500" /> Voir détails
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => { onEdit(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-          >
-            <Pencil size={15} className="text-gray-500" /> Modifier
-          </button>
+          {showEdit && (
+            <button
+              type="button"
+              onClick={() => { onEdit(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+            >
+              <Pencil size={15} className="text-gray-500" /> Modifier
+            </button>
+          )}
 
-          <div className="my-1 border-t border-gray-100" />
+          {(showAssignService || showRemoveService) && (showDetail || showEdit) && (
+            <div className="my-1 border-t border-gray-100" />
+          )}
 
-          <button
-            type="button"
-            onClick={() => { onAssignService(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
-          >
-            <CheckCircle2 size={15} /> Assigner service
-          </button>
+          {showAssignService && (
+            <button
+              type="button"
+              onClick={() => { onAssignService(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
+            >
+              <CheckCircle2 size={15} /> Assigner service
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => { onRemoveService(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
-          >
-            <XCircle size={15} /> Retirer service
-          </button>
+          {showRemoveService && (
+            <button
+              type="button"
+              onClick={() => { onRemoveService(item); onToggle() }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-[#1EA4DC] hover:bg-blue-50 transition-colors"
+            >
+              <XCircle size={15} /> Retirer service
+            </button>
+          )}
 
-          <div className="my-1 border-t border-gray-100" />
+          {showToggle && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                type="button"
+                disabled={isToggling}
+                onClick={() => { onToggleStatus(item); onToggle() }}
+                className={`flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                  ${item.status === "Actif"
+                    ? "text-orange-600 hover:bg-orange-50"
+                    : "text-green-600 hover:bg-green-50"
+                  }`}
+              >
+                {isToggling
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : (item.status === "Actif" ? <ToggleLeft size={15} /> : <ToggleRight size={15} />)
+                }
+                {isToggling ? "Mise à jour..." : (item.status === "Actif" ? "Désactiver" : "Activer")}
+              </button>
+            </>
+          )}
 
-          <button
-            type="button"
-            disabled={isToggling}
-            onClick={() => { onToggleStatus(item); onToggle() }}
-            className={`flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-              ${item.status === "Actif"
-                ? "text-orange-600 hover:bg-orange-50"
-                : "text-green-600 hover:bg-green-50"
-              }`}
-          >
-            {isToggling
-              ? <Loader2 size={15} className="animate-spin" />
-              : (item.status === "Actif" ? <ToggleLeft size={15} /> : <ToggleRight size={15} />)
-            }
-            {isToggling ? "Mise à jour..." : (item.status === "Actif" ? "Désactiver" : "Activer")}
-          </button>
-
-          <div className="my-1 border-t border-gray-100" />
-
-          <button
-            type="button"
-            onClick={() => { onDelete(item); onToggle() }}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
-          >
-            <Trash2 size={15} /> Supprimer
-          </button>
+          {showDelete && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                type="button"
+                onClick={() => { onDelete(item); onToggle() }}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 size={15} /> Supprimer
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1933,7 +2001,13 @@ function DistributeursTable({
   onToggleStatus,
   togglingIds,
   onAssignService,
-  onRemoveService
+  onRemoveService,
+  canView,
+  canEdit,
+  canDelete,
+  canToggle,
+  canAssignService,
+  canRemoveService,
 }) {
   const [openRow, setOpenRow] = useState(null)
   const tableRef = useRef(null)
@@ -1993,6 +2067,12 @@ function DistributeursTable({
                   onRemoveService={onRemoveService}
                   isOpen={openRow === item.id}
                   onToggle={() => setOpenRow(openRow === item.id ? null : item.id)}
+                  showDetail={canView}
+                  showEdit={canEdit}
+                  showDelete={canDelete}
+                  showToggle={canToggle}
+                  showAssignService={canAssignService}
+                  showRemoveService={canRemoveService}
                 />
               </td>
             </tr>
@@ -2015,7 +2095,13 @@ function CommercantTable({
   onToggleStatus,
   togglingIds,
   onAssignService,
-  onRemoveService
+  onRemoveService,
+  canView,
+  canEdit,
+  canDelete,
+  canToggle,
+  canAssignService,
+  canRemoveService,
 }) {
   const [openRow, setOpenRow] = useState(null)
   const tableRef = useRef(null)
@@ -2071,6 +2157,12 @@ function CommercantTable({
                   onRemoveService={onRemoveService}
                   isOpen={openRow === item.id}
                   onToggle={() => setOpenRow(openRow === item.id ? null : item.id)}
+                  showDetail={canView}
+                  showEdit={canEdit}
+                  showDelete={canDelete}
+                  showToggle={canToggle}
+                  showAssignService={canAssignService}
+                  showRemoveService={canRemoveService}
                 />
               </td>
             </tr>

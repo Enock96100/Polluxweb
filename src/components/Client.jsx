@@ -13,10 +13,20 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import axios from "axios"
+import useAuth from "../context/auth/utils"
 
 /* ===================== MAIN ===================== */
 
 export default function Clients() {
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
+
+  // CLIENT_MANAGEMENT : lecture/modification/suppression d'un client
+  const canView   = can("CLIENT_READ")
+  const canEdit   = can("CLIENT_UPDATE")
+  const canDelete = can("CLIENT_DELETE")
 
   /* ===================== STATES ===================== */
 
@@ -56,7 +66,7 @@ export default function Clients() {
         const token = localStorage.getItem("token")
 
         const response = await axios.get(
-          `https://youapi.youneed.app/pollux/dev/api/clients?page=${currentPage}&limit=${rowsPerPage}`,
+          `https://youapi.youneed.app/pollux/prod/api/clients?page=${currentPage}&limit=${rowsPerPage}`,
           {
             headers: {
               accept: "application/json",
@@ -130,7 +140,7 @@ export default function Clients() {
     try {
       const token = localStorage.getItem("token")
       const response = await axios.get(
-        `https://youapi.youneed.app/pollux/dev/api/clients/profile/${clientId}`,
+        `https://youapi.youneed.app/pollux/prod/api/clients/profile/${clientId}`,
         {
           headers: {
             accept: "application/json",
@@ -281,6 +291,9 @@ export default function Clients() {
                   openMenuId={openMenuId}
                   setOpenMenuId={setOpenMenuId}
                   onViewDetails={handleViewDetails}
+                  canView={canView}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
                   {...item}
                 />
               ))}
@@ -321,24 +334,10 @@ export default function Clients() {
 }
 
 /* ===================== MENU D'ACTIONS (PORTAL) ===================== */
-/*
-   CORRECTION DU BUG "menu caché / coupé" :
-   Le menu de la ligne (Voir détails / Modifier / Supprimer) était en
-   `position: absolute`, imbriqué dans le <td> d'un tableau enveloppé par
-   un conteneur `overflow-x-auto`. Dès que le menu dépassait la zone
-   visible (dernière ligne, bord du tableau, scroll horizontal), il était
-   tronqué ou totalement invisible.
-
-   Solution : on calcule la position réelle du bouton "⋯" à l'écran
-   (getBoundingClientRect) et on rend le menu via un PORTAL React
-   (createPortal) directement dans <body>, en position `fixed`. Le menu
-   n'est donc plus soumis à l'overflow du tableau et reste toujours
-   entièrement visible, y compris sur mobile.
-*/
 
 const ACTION_MENU_PORTAL_CLASS = "client-row-action-menu-portal"
 
-function ClientRowMenu({ id, status, onViewDetails, isOpen, onToggle }) {
+function ClientRowMenu({ id, status, onViewDetails, isOpen, onToggle, canView, canEdit, canDelete }) {
   const buttonRef = useRef(null)
   const [coords, setCoords] = useState(null) // { top, left, openUpward }
 
@@ -390,6 +389,10 @@ function ClientRowMenu({ id, status, onViewDetails, isOpen, onToggle }) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [isOpen, onToggle])
 
+  // Si aucune action n'est autorisée pour cette ligne, on n'affiche même
+  // pas le bouton "..." plutôt qu'un menu vide inutile.
+  if (!canView && !canEdit && !canDelete) return null
+
   return (
     <>
       <button
@@ -410,25 +413,32 @@ function ClientRowMenu({ id, status, onViewDetails, isOpen, onToggle }) {
             animation: "clientMenuFadeIn 0.1s ease-out",
           }}
         >
-          <button
-            onClick={() => onViewDetails(id, status)}
-            className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
-          >
-            <Eye size={16} className="text-gray-500" />
-            <span>Voir détails</span>
-          </button>
+          {canView && (
+            <button
+              onClick={() => onViewDetails(id, status)}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors"
+            >
+              <Eye size={16} className="text-gray-500" />
+              <span>Voir détails</span>
+            </button>
+          )}
 
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors">
-            <Pencil size={16} className="text-gray-500" />
-            <span>Modifier</span>
-          </button>
+          {canEdit && (
+            <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 transition-colors">
+              <Pencil size={16} className="text-gray-500" />
+              <span>Modifier</span>
+            </button>
+          )}
 
-          <div className="border-t border-gray-200" />
-
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors">
-            <Trash2 size={16} />
-            <span>Supprimer</span>
-          </button>
+          {canDelete && (
+            <>
+              <div className="border-t border-gray-200" />
+              <button className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 transition-colors">
+                <Trash2 size={16} />
+                <span>Supprimer</span>
+              </button>
+            </>
+          )}
         </div>,
         document.body
       )}
@@ -444,9 +454,6 @@ function ClientRowMenu({ id, status, onViewDetails, isOpen, onToggle }) {
 }
 
 /* ===================== ROW ===================== */
-/* Style aligné sur les lignes du tableau de Produits : fond alterné
-   (bg-gray-50 / bg-white), hover:bg-blue-50, cellules px-4 py-3, et
-   badge de statut au format px-3 py-1 rounded-full text-xs font-medium. */
 
 function ClientRow({
   id,
@@ -461,6 +468,9 @@ function ClientRow({
   openMenuId,
   setOpenMenuId,
   onViewDetails,
+  canView,
+  canEdit,
+  canDelete,
 }) {
 
   return (
@@ -500,6 +510,9 @@ function ClientRow({
           onViewDetails={onViewDetails}
           isOpen={openMenuId === id}
           onToggle={setOpenMenuId}
+          canView={canView}
+          canEdit={canEdit}
+          canDelete={canDelete}
         />
       </td>
 
@@ -508,10 +521,6 @@ function ClientRow({
 }
 
 /* ===================== PAGINATION ===================== */
-/* Style de rendu repris à l'identique de Produits.jsx : libellé "Affichage
-   de X à Y sur Z entrées" à gauche, sélecteur "Par page" + navigation
-   compacte (<< < page/total > >>) à droite, avec boutons désactivés
-   grisés (icônes text-gray-200) plutôt que masqués. */
 
 function PaginationFooter({
   total,

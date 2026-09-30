@@ -21,23 +21,9 @@ import { useState, useEffect, useMemo } from "react"
 import { useParams, useLocation, useNavigate } from "react-router-dom"
 import axios from "axios"
 import { getAuthData } from "./auth"
+import useAuth from "../context/auth/utils"
 
-/* =================================================================
-   ⚠️ À CONFIRMER : c'était la cause du bug (bouton "Assigner permission"
-   disparu + permissions/utilisateurs assignés introuvables).
-   API_BASE était utilisée dans tout le fichier (fetchRole,
-   fetchPermissionsGrouped, fetchAssignedUsers, AssignPermissionsModal,
-   EditPermissionModal) mais n'était JAMAIS importée ni définie.
-   Résultat : chaque appel levait un `ReferenceError: API_BASE is not
-   defined`, silencieusement avalé par les try/catch, ce qui vidait
-   les données ET faisait sortir le composant en early-return
-   (bloc errorRole) sans afficher le bouton ni les sections.
-
-   Si vous avez un fichier de config centralisé ailleurs dans le
-   projet Pollux (ex: ./config.js), remplacez la ligne ci-dessous par :
-   import { API_BASE } from "./config"
-   ================================================================= */
-const API_BASE = "https://youapi.youneed.app/pollux/dev/api" // ✅ CONFIRMÉ (URL API Pollux utilisée ailleurs dans le projet)
+const API_BASE = "https://youapi.youneed.app/pollux/prod/api" //  CONFIRMÉ (URL API Pollux utilisée ailleurs dans le projet)
 
 /* ================= LIBELLÉS DES MODULES (FR) =================
    Mapping code module (API) -> libellé français affiché en titre de groupe.
@@ -84,6 +70,10 @@ export default function DetailRole() {
   const { id: idFromParams } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  // can("CODE_PERMISSION") : true pour la compagnie, vérifié contre les
+  // permissions réelles de l'agent sinon. Le backend reste la vraie
+  // barrière de sécurité (403) — ceci ne pilote que l'affichage.
+  const { can } = useAuth()
 
   const roleFromState = location.state?.role
 
@@ -276,6 +266,10 @@ export default function DetailRole() {
     0
   )
 
+  // ROLE_ASSIGN_PERMISSIONS : gère l'assignation, la modification et le
+  // retrait de permissions sur un rôle. Toutes les actions de cette page
+  // qui touchent aux permissions d'un rôle sont gatées par ce même code.
+  const canManagePermissions = can("ROLE_ASSIGN_PERMISSIONS")
 
   if (loadingRole && !role) {
     return (
@@ -334,13 +328,16 @@ export default function DetailRole() {
           Retour
         </button>
 
-        <button
-          onClick={() => setShowAssignModal(true)}
-          className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#1a8bbd] transition-colors w-full sm:w-auto"
-        >
-          <Lock size={18} />
-          Assigner permission
-        </button>
+        {/* ROLE_ASSIGN_PERMISSIONS : assigner de nouvelles permissions au rôle */}
+        {canManagePermissions && (
+          <button
+            onClick={() => setShowAssignModal(true)}
+            className="flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#1a8bbd] transition-colors w-full sm:w-auto"
+          >
+            <Lock size={18} />
+            Assigner permission
+          </button>
+        )}
       </div>
 
       {/* ================= CARTE RÔLE ================= */}
@@ -441,7 +438,11 @@ export default function DetailRole() {
                     <tr>
                       <th className="px-4 py-3 text-left whitespace-nowrap">Permission</th>
                       <th className="px-4 py-3 text-left">Description</th>
-                      <th className="px-4 py-3 text-center whitespace-nowrap">Actions</th>
+                      {/* Colonne Actions affichée seulement si l'utilisateur
+                          peut modifier/retirer des permissions */}
+                      {canManagePermissions && (
+                        <th className="px-4 py-3 text-center whitespace-nowrap">Actions</th>
+                      )}
                     </tr>
                   </thead>
 
@@ -450,6 +451,7 @@ export default function DetailRole() {
                       <PermissionRow
                         key={permission.id}
                         permission={permission}
+                        canManage={canManagePermissions}
                         onEdit={() => setEditingPermission(permission)}
                         onRemove={() => handleRemovePermission(permission)}
                       />
@@ -587,7 +589,7 @@ function InfoField({ label, value, full = false }) {
 }
 
 /* ================= PERMISSION ROW ================= */
-function PermissionRow({ permission, onEdit, onRemove }) {
+function PermissionRow({ permission, canManage, onEdit, onRemove }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -605,48 +607,50 @@ function PermissionRow({ permission, onEdit, onRemove }) {
         {permission.description || "-"}
       </td>
 
-      <td className="px-4 py-4 text-center relative">
-        <button
-          onClick={() => setOpen(!open)}
-          className="mx-auto flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100"
-        >
-          <MoreHorizontal className="text-gray-600" size={18} />
-        </button>
+      {canManage && (
+        <td className="px-4 py-4 text-center relative">
+          <button
+            onClick={() => setOpen(!open)}
+            className="mx-auto flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100"
+          >
+            <MoreHorizontal className="text-gray-600" size={18} />
+          </button>
 
-        {open && (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setOpen(false)}
-            />
-            <div className="absolute right-0 sm:right-6 top-10 w-52 max-w-[85vw] bg-white border border-gray-100 rounded-2xl shadow-lg z-20 py-2 text-left">
-              <button
-                onClick={() => {
-                  setOpen(false)
-                  onEdit()
-                }}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Pencil size={17} className="text-gray-500" />
-                Modifier permission
-              </button>
+          {open && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setOpen(false)}
+              />
+              <div className="absolute right-0 sm:right-6 top-10 w-52 max-w-[85vw] bg-white border border-gray-100 rounded-2xl shadow-lg z-20 py-2 text-left">
+                <button
+                  onClick={() => {
+                    setOpen(false)
+                    onEdit()
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Pencil size={17} className="text-gray-500" />
+                  Modifier permission
+                </button>
 
-              <div className="border-t border-gray-100 my-1" />
+                <div className="border-t border-gray-100 my-1" />
 
-              <button
-                onClick={() => {
-                  setOpen(false)
-                  onRemove()
-                }}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
-              >
-                <Trash2 size={17} />
-                Retirer
-              </button>
-            </div>
-          </>
-        )}
-      </td>
+                <button
+                  onClick={() => {
+                    setOpen(false)
+                    onRemove()
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={17} />
+                  Retirer
+                </button>
+              </div>
+            </>
+          )}
+        </td>
+      )}
     </tr>
   )
 }

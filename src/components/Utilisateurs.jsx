@@ -25,47 +25,27 @@ import { useEffect, useState, useCallback, useRef, useLayoutEffect } from "react
 import { createPortal } from "react-dom"
 import { useNavigate } from "react-router-dom"
 import axios from "axios"
+import useAuth from "../context/auth/utils"
 
 /* ================= API ================= */
-const BASE_URL = "https://youapi.youneed.app/pollux/dev/api"
+const BASE_URL = "https://youapi.youneed.app/pollux/prod/api"
 
-// ⚠️ À CONFIRMER : adapter selon le vrai utilitaire getAuthData() du projet
-// pour récupérer le token et le companyId de l'entreprise connectée.
 const getToken = () => localStorage.getItem("token")
 const getCompanyId = () => localStorage.getItem("companyId")
 
-// ✅ CONFIRMÉ : endpoints fournis
 const agentsUrl = (companyId) => `${BASE_URL}/admin-agents/company/${companyId}`
 const agentsStatsUrl = (companyId) =>
   `${BASE_URL}/admin-agents/company/${companyId}/statistics`
 
-// ✅ CONFIRMÉ : endpoints sur un agent donné
-// POST  /admin-agents                        (multipart/form-data) -> création
-// PUT   /admin-agents/{id}                    (multipart/form-data) -> modification
-//       champs : firstName, lastName, email, phone, employeeCode,
-//                department, position, isActive, photo
-// PATCH /admin-agents/{id}/toggle-status      (application/json) body: { isActive }
-// DELETE /admin-agents/{id}/hard              -> suppression définitive
 const agentsCreateUrl = () => `${BASE_URL}/admin-agents`
 const agentDetailUrl = (id) => `${BASE_URL}/admin-agents/${id}`
 const agentToggleStatusUrl = (id) => `${BASE_URL}/admin-agents/${id}/toggle-status`
 const agentDeleteUrl = (id) => `${BASE_URL}/admin-agents/${id}/hard`
-// ✅ CONFIRMÉ : endpoint d'assignation de rôles à un agent (assignation multiple)
-// POST /admin-agents/{id}/roles/bulk   body: { roleIds: string[] }
 const agentAssignRolesUrl = (id) => `${BASE_URL}/admin-agents/${id}/roles/bulk`
 
-//  CONFIRMÉ : liste des rôles assignables (hors rôles principaux)
-// GET /roles/all-roles-except-main-roles?isActive=&search=
 const rolesUrl = () => `${BASE_URL}/roles/all-roles-except-main-roles`
-// ✅ CONFIRMÉ : endpoint de création d'un rôle
 const rolesCreateUrl = () => `${BASE_URL}/roles`
-// ✅ CONFIRMÉ : endpoints sur un rôle donné
-// PUT    /roles/{id}          body: { name, description, libelle, isActive }
-// DELETE /roles/{id}          -> { success, message, data }
 const roleDetailUrl = (id) => `${BASE_URL}/roles/${id}`
-// ✅ CONFIRMÉ : endpoints d'activation / désactivation d'un rôle
-// POST /roles/{id}/activate   body: (vide) -> { success, message, data }
-// POST /roles/{id}/deactivate body: (vide) -> { success, message, data }
 const roleActivateUrl = (id) => `${BASE_URL}/roles/${id}/activate`
 const roleDeactivateUrl = (id) => `${BASE_URL}/roles/${id}/deactivate`
 
@@ -119,11 +99,7 @@ function NotificationBanner({ notif, onDismiss }) {
   )
 }
 
-/* ═══════════════════════ PAGINATION ═══════════════════════
-   Même style et rendu que la pagination de Produits.jsx (PaginationFooter) :
-   "Affichage de X à Y sur Z entrées" à gauche, sélecteur "Par page" +
-   navigation page par page (<< < page/total > >>) à droite. Réutilisé par
-   le tableau des Agents et celui des Rôles. */
+/* ═══════════════════════ PAGINATION ═══════════════════════ */
 function Pagination({ page, setPage, limit, setLimit, total, limitOptions = [10, 25, 50, 100] }) {
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const start = total === 0 ? 0 : (page - 1) * limit + 1
@@ -204,13 +180,9 @@ function Pagination({ page, setPage, limit, setLimit, total, limitOptions = [10,
   )
 }
 
-/* ═══════════════════════ CONFIRMATION PERSONNALISÉE ═══════════════════════
-   Remplace window.confirm() (boîte native du navigateur, non stylée, qui
-   affiche "localhost:5173 indique...") par une vraie modale de l'app.
-   Ce hook + composant est partagé par la section Agents ET la section
-   Rôles, afin d'avoir un comportement et un rendu identiques partout. */
+/* ═══════════════════════ CONFIRMATION PERSONNALISÉE ═══════════════════════ */
 function useConfirm() {
-  const [state, setState] = useState(null) // { message, title, variant, onConfirm }
+  const [state, setState] = useState(null)
 
   const ask = useCallback((message, onConfirm, options = {}) => {
     setState({ message, onConfirm, title: options.title, variant: options.variant })
@@ -270,23 +242,7 @@ function ConfirmDialog({ state, onCancel, onConfirm }) {
   )
 }
 
-/* ═══════════════════════ ACTION MENU (menu "..." des lignes de tableau) ═══════════════════════
-   PROBLÈME CORRIGÉ : ce menu était auparavant un <div className="absolute">
-   placé à l'intérieur d'un <td>, lui-même dans un conteneur de tableau en
-   `overflow-x-auto`. Un élément `position: absolute` reste positionné par
-   rapport à son ancêtre positionné le plus proche (ici le <td>), qui est
-   contenu dans une zone qui coupe (clip) tout ce qui dépasse horizontalement
-   à cause de `overflow-x-auto`. Résultat : le menu était tronqué / invisible
-   dès qu'il dépassait la zone visible du scroll horizontal.
-
-   SOLUTION : on sort le menu du flux du tableau via un portal React
-   (createPortal vers document.body) et on le positionne en
-   `position: fixed` avec des coordonnées calculées dynamiquement depuis
-   getBoundingClientRect() du bouton déclencheur. Un élément fixed/portal
-   n'est plus un enfant DOM du conteneur overflow-x-auto : il ne peut donc
-   plus être tronqué par lui, quel que soit le scroll horizontal du tableau.
-
-   Composant réutilisé par AgentRow et RoleRow. */
+/* ═══════════════════════ ACTION MENU ═══════════════════════ */
 function ActionMenu({ items, menuWidth = 208 }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef(null)
@@ -297,15 +253,12 @@ function ActionMenu({ items, menuWidth = 208 }) {
     const rect = btnRef.current.getBoundingClientRect()
     const margin = 8
 
-    // Aligne par défaut le bord droit du menu sur le bord droit du bouton,
-    // puis on clamp pour rester dans le viewport (gauche et droite).
     let left = rect.right - menuWidth
     if (left < margin) left = margin
     if (left + menuWidth > window.innerWidth - margin) {
       left = window.innerWidth - menuWidth - margin
     }
 
-    // Si le menu ne tient pas en dessous du bouton, on l'ouvre vers le haut.
     const estimatedMenuHeight = items.length * 44 + 24
     const spaceBelow = window.innerHeight - rect.bottom
     const openUpward = spaceBelow < estimatedMenuHeight && rect.top > estimatedMenuHeight
@@ -320,9 +273,6 @@ function ActionMenu({ items, menuWidth = 208 }) {
     setOpen((o) => !o)
   }
 
-  // Recalcule/ferme le menu si la fenêtre scroll (y compris le scroll
-  // horizontal du tableau) ou est redimensionnée, pour éviter un menu
-  // qui reste affiché à une position obsolète.
   useEffect(() => {
     if (!open) return
 
@@ -338,11 +288,11 @@ function ActionMenu({ items, menuWidth = 208 }) {
     }
   }, [open, updatePosition])
 
-  // Recalcule la position juste avant peinture au moment de l'ouverture,
-  // pour éviter un flash à une mauvaise position.
   useLayoutEffect(() => {
     if (open) updatePosition()
   }, [open, updatePosition])
+
+  if (!items || items.length === 0) return null
 
   return (
     <>
@@ -357,7 +307,6 @@ function ActionMenu({ items, menuWidth = 208 }) {
       {open &&
         createPortal(
           <>
-            {/* Overlay plein écran pour fermer le menu en cliquant à l'extérieur */}
             <div className="fixed inset-0 z-[100]" onClick={() => setOpen(false)} />
 
             <div
@@ -389,11 +338,7 @@ function ActionMenu({ items, menuWidth = 208 }) {
   )
 }
 
-/* ================= HOOK : liste des rôles (assignables, hors rôles principaux) =================
-   Utilisé à la fois par :
-   - le formulaire de création d'agent (sélection de rôles, isActive=true, pas de recherche)
-   - le modal d'assignation de rôles (recherche + isActive=true)
-   - la section Rôles (recherche + filtre de statut, aucun rôle exclu côté UI) */
+/* ================= HOOK : liste des rôles ================= */
 function useAssignableRoles({ search, isActive } = {}) {
   const [roles, setRoles] = useState([])
   const [loading, setLoading] = useState(false)
@@ -406,12 +351,6 @@ function useAssignableRoles({ search, isActive } = {}) {
       const params = {}
       if (typeof isActive === "boolean") params.isActive = isActive
       if (search) params.search = search
-
-      // Paramètre unique à chaque appel : empêche le navigateur (ou un proxy
-      // intermédiaire) de servir une réponse GET mise en cache basée sur
-      // l'URL. Sans ça, après une action réussie (désactiver/activer/
-      // supprimer), refetch() pouvait renvoyer une liste obsolète tant que
-      // la page n'était pas rechargée manuellement.
       params._t = Date.now()
 
       const response = await axios.get(rolesUrl(), {
@@ -420,8 +359,7 @@ function useAssignableRoles({ search, isActive } = {}) {
           Authorization: `Bearer ${getToken()}`,
           Accept: "application/json",
         },
-      }) 
-      console.log("FETCH ROLES RESPONSE:", response.data)
+      })
       setRoles(response.data.data || [])
     } catch (err) {
       console.error("FETCH ROLES ERROR:", err.response || err)
@@ -437,17 +375,14 @@ function useAssignableRoles({ search, isActive } = {}) {
     fetchRoles()
   }, [fetchRoles])
 
-  // Ajoute un rôle fraîchement créé en tête de liste sans attendre le refetch
   const addRole = useCallback((role) => {
     setRoles((prev) => [role, ...prev])
   }, [])
 
-  // Met à jour un rôle existant dans la liste sans attendre le refetch
   const updateRoleInList = useCallback((id, patch) => {
     setRoles((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }, [])
 
-  // Retire un rôle de la liste sans attendre le refetch
   const removeRoleFromList = useCallback((id) => {
     setRoles((prev) => prev.filter((r) => r.id !== id))
   }, [])
@@ -457,11 +392,10 @@ function useAssignableRoles({ search, isActive } = {}) {
 
 /* ================= MAIN COMPONENT ================= */
 export default function UserManagement() {
-  const [activeTab, setActiveTab] = useState("agents") // "agents" | "roles"
+  const [activeTab, setActiveTab] = useState("agents")
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
-      {/* ================= TITLE ================= */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold">
@@ -477,7 +411,6 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* ================= TABS (style Produits.jsx) ================= */}
       <div className="flex gap-1.5 sm:gap-2 bg-gray-100 rounded-full p-1 w-fit max-w-full overflow-x-auto">
         <button
           onClick={() => setActiveTab("agents")}
@@ -504,8 +437,8 @@ export default function UserManagement() {
 
 /* ================= AGENTS SECTION ================= */
 function AgentsSection() {
-  // Navigation vers la page de détail dédiée : /detail_agent/:id
   const navigate = useNavigate()
+  const { can } = useAuth()
 
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(false)
@@ -528,7 +461,6 @@ function AgentsSection() {
   const [limit, setLimit] = useState(10)
   const [total, setTotal] = useState(0)
 
-  /* ===== MODALS ===== */
   const [showEdit, setShowEdit] = useState(false)
   const [editAgent, setEditAgent] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -536,7 +468,6 @@ function AgentsSection() {
   const [showAssignRole, setShowAssignRole] = useState(false)
   const [roleAgent, setRoleAgent] = useState(null)
 
-  /* ================= FETCH AGENTS ================= */
   useEffect(() => {
     fetchAgents()
     fetchStats()
@@ -557,8 +488,6 @@ function AgentsSection() {
         params: {
           page,
           limit,
-          // ✅ CONFIRMÉ
-          // ⚠️ À CONFIRMER : paramètres de filtre ci-dessous non confirmés côté API
           search: search || undefined,
           department:
             departmentFilter !== "tous" ? departmentFilter : undefined,
@@ -595,11 +524,10 @@ function AgentsSection() {
 
       setStats(response.data.data || {})
     } catch {
-      // silencieux : les stats ne bloquent pas l'affichage du tableau
+      // silencieux
     }
   }
 
-  /* ================= ACTIONS ================= */
   const handleDelete = (id) => {
     ask(
       "Cette action est irréversible.",
@@ -612,9 +540,6 @@ function AgentsSection() {
             },
           })
           showSuccess("Agent supprimé avec succès")
-          // On revient chercher la liste réelle côté serveur : l'affichage
-          // reste garanti à jour même si un autre agent/onglet a modifié
-          // la même donnée entre-temps.
           await fetchAgents()
           await fetchStats()
         } catch {
@@ -630,11 +555,6 @@ function AgentsSection() {
     setShowEdit(true)
   }
 
-  // Le clic sur "Détail" redirige désormais vers la page dédiée
-  // /detail_agent/:id (route déclarée dans le routeur de l'app), en passant
-  // l'id de l'agent dans l'URL. On transmet aussi l'agent déjà chargé via
-  // l'état de navigation (location.state.agent) pour un affichage immédiat
-  // côté Detail_agent sans attendre un éventuel appel réseau supplémentaire.
   const handleDetails = (agent) => {
     navigate(`/detail_agent/${agent.id}`, { state: { agent } })
   }
@@ -653,7 +573,6 @@ function AgentsSection() {
         : "L'agent perdra l'accès au système.",
       async () => {
         try {
-          // ✅ CONFIRMÉ : PATCH /admin-agents/{id}/toggle-status body: { isActive }
           await axios.patch(
             agentToggleStatusUrl(agent.id),
             { isActive: nextStatus },
@@ -666,8 +585,6 @@ function AgentsSection() {
             }
           )
           showSuccess(nextStatus ? "Agent activé" : "Agent désactivé")
-          // Refetch complet : on ne se contente jamais d'un patch local,
-          // l'état affiché doit toujours refléter la réponse du serveur.
           await fetchAgents()
           await fetchStats()
         } catch {
@@ -682,12 +599,10 @@ function AgentsSection() {
 
   return (
     <>
-      {/* ================= NOTIFICATION ================= */}
       {notif && (
         <NotificationBanner notif={notif} onDismiss={dismiss} />
       )}
 
-      {/* ================= STATS ================= */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <StatCard label="Total Agents" value={stats.totalAgents ?? 0} icon={<Users />} />
         <StatCard
@@ -704,21 +619,20 @@ function AgentsSection() {
         />
       </div>
 
-      {/* ================= TABLE CARD ================= */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
           <h2 className="text-base sm:text-lg font-semibold">Liste des Agents</h2>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm shrink-0"
-          >
-            <UserPlus size={18} />
-            Nouvel Agent
-          </button>
+          {can("ADMIN_AGENT_CREATE") && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm shrink-0"
+            >
+              <UserPlus size={18} />
+              Nouvel Agent
+            </button>
+          )}
         </div>
 
-        {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -755,8 +669,6 @@ function AgentsSection() {
           </select>
         </div>
 
-        {/* Table — même style que Produits.jsx : conteneur arrondi,
-            lignes alternées gris clair / blanc, survol bleu clair. */}
         {loading ? (
           <p className="text-center text-gray-500 py-8">Chargement...</p>
         ) : error ? (
@@ -802,7 +714,6 @@ function AgentsSection() {
           </div>
         )}
 
-        {/* Pagination */}
         {!loading && !error && (
           <Pagination
             page={page}
@@ -814,19 +725,6 @@ function AgentsSection() {
         )}
       </div>
 
-      {/* ================= MODALS ================= */}
-      {/* La modale de détail d'un agent a été retirée : "Détail" navigue
-          maintenant vers la page /detail_agent/:id (voir handleDetails
-          ci-dessus). Seuls les modals de création/modification et
-          d'assignation de rôle restent des modales in-page. */}
-
-      {/* Un seul et même formulaire (AgentFormModal) sert à la fois pour la
-          création et pour la modification d'un agent : même mise en page,
-          mêmes champs de base (photo, identité, département/poste), seul
-          le mode ("create" | "edit") change le comportement de soumission
-          (POST multipart vs PUT multipart) et les champs affichés à
-          l'étape 2 (rôles à la création, statut actif/inactif en édition,
-          conformément aux endpoints confirmés). */}
       {showEdit && editAgent && (
         <AgentFormModal
           mode="edit"
@@ -873,8 +771,6 @@ function AgentsSection() {
 }
 
 /* ================= AGENT ROW ================= */
-/* Même style que ProductsTable de Produits.jsx : lignes alternées gris
-   clair / blanc (rowIndex pair/impair) avec survol bleu clair. */
 function AgentRow({
   rowIndex,
   agent,
@@ -884,46 +780,41 @@ function AgentRow({
   onAssignRole,
   onToggleStatus,
 }) {
+  const { can } = useAuth()
   const user = agent.user || {}
   const role = user.userRoles?.[0]?.role
 
-  // Le menu d'actions est désormais géré par <ActionMenu /> (portal +
-  // position fixed calculée dynamiquement), ce qui corrige la troncature
-  // par le conteneur overflow-x-auto du tableau.
   const menuItems = [
-    {
+    can("ADMIN_AGENT_READ") && {
       icon: <Eye size={17} className="text-gray-500" />,
       label: "Détail",
       onClick: () => onDetails(agent),
     },
-    {
+    can("ADMIN_AGENT_UPDATE") && {
       icon: <Pencil size={17} className="text-gray-500" />,
       label: "Modifier",
       onClick: () => onEdit(agent),
     },
-    {
+    can("ADMIN_AGENT_PERMISSIONS") && {
       icon: <UserCog size={17} className="text-gray-500" />,
       label: "Assigner Rôle",
       onClick: () => onAssignRole(agent),
     },
-    {
-      // Icône distincte selon le sens de l'action :
-      // PowerOff quand l'agent est actif (l'action va le désactiver),
-      // Power quand il est inactif (l'action va l'activer).
+    can("ADMIN_AGENT_UPDATE") && {
       icon: agent.isActive ? <PowerOff size={17} /> : <Power size={17} />,
       label: agent.isActive ? "Désactiver" : "Activer",
       onClick: () => onToggleStatus(agent),
       className: agent.isActive ? "text-orange-500" : "text-green-600",
       dividerBefore: true,
     },
-    {
+    can("ADMIN_AGENT_DELETE") && {
       icon: <Trash2 size={17} />,
       label: "Supprimer",
       onClick: () => onDelete(agent.id),
       className: "text-red-600",
       dividerBefore: true,
     },
-  ]
+  ].filter(Boolean)
 
   return (
     <tr className={`${rowIndex % 2 ? "bg-gray-50" : "bg-white"} hover:bg-blue-50 transition-colors`}>
@@ -965,19 +856,7 @@ function AgentRow({
   )
 }
 
-/* ================= AGENT FORM MODAL (création ET modification, 2 étapes) =================
-   Un seul composant réutilisé pour créer et pour modifier un agent, avec la
-   même mise en page en 2 étapes (informations personnelles / informations
-   professionnelles), pour rester cohérent entre les deux écrans.
-
-   - mode === "create" : POST /admin-agents (multipart/form-data)
-       champs envoyés : firstName, lastName, email, phone, employeeCode,
-       department, position, companyId, roleIds[], photo
-   - mode === "edit"   : PUT /admin-agents/{id} (multipart/form-data)
-       ✅ CONFIRMÉ (curl) — champs envoyés : firstName, lastName, email,
-       phone, department, position, isActive, photo
-       (pas de roleIds/companyId sur cet endpoint : l'assignation de rôle
-       reste gérée séparément via "Assigner Rôle") */
+/* ================= AGENT FORM MODAL ================= */
 function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSuccess, showError }) {
   const isEdit = mode === "edit"
   const user = agent?.user || {}
@@ -986,9 +865,6 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // Les rôles ne sont proposés qu'à la création : l'API de modification
-  // confirmée ne prend pas de roleIds. En édition, le rôle se change via
-  // le menu "Assigner Rôle" dédié.
   const { roles, loading: rolesLoading } = useAssignableRoles({ isActive: true })
 
   const [form, setForm] = useState({
@@ -1060,10 +936,8 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
       formData.append("position", form.position)
 
       if (isEdit) {
-        // ✅ CONFIRMÉ : PUT /admin-agents/{id} (multipart/form-data)
         formData.append("employeeCode", form.employeeCode)
         formData.append("isActive", String(Boolean(form.isActive)))
-        // Le endpoint accepte le champ "photo" (vide si aucune nouvelle photo)
         formData.append("photo", photo || "")
 
         await axios.put(agentDetailUrl(agent.id), formData, {
@@ -1080,7 +954,6 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
         formData.append("employeeCode", form.employeeCode)
         formData.append("companyId", companyId)
         selectedRoleIds.forEach((roleId) => formData.append("roleIds", roleId))
-        // ⚠️ À CONFIRMER : nom du champ attendu par l'API pour la photo à la création
         if (photo) formData.append("photo", photo)
 
         await axios.post(agentsCreateUrl(), formData, {
@@ -1111,13 +984,11 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-3 sm:px-4 py-6 sm:py-8">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="px-4 sm:px-6 pt-5 sm:pt-6">
           <h2 className="text-lg sm:text-xl font-semibold text-center">
             {isEdit ? "Modifier l'agent" : "Ajouter un agent"}
           </h2>
 
-          {/* Steps indicator */}
           <div className="flex items-center gap-2 mt-5 mb-2">
             <StepPill active={step === 1} done={step > 1} label="1" />
             <div className="flex-1 h-0.5 bg-gray-200" />
@@ -1135,11 +1006,9 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
           </div>
         )}
 
-        {/* Body */}
         <div className="px-4 sm:px-6 pb-2 overflow-y-auto text-sm space-y-4">
           {step === 1 && (
             <>
-              {/* Photo */}
               <div className="flex flex-col items-center gap-3 py-2">
                 <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
                   {photoPreview ? (
@@ -1237,8 +1106,6 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
               />
 
               {isEdit ? (
-                // En modification, l'API confirmée attend un champ isActive
-                // (pas de roleIds) : on affiche donc le statut ici.
                 <label className="flex items-center gap-2 pt-1">
                   <input
                     type="checkbox"
@@ -1275,7 +1142,6 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
                                 {role.description}
                               </p>
                             )}
-                            {/* ✅ CONFIRMÉ : _count.rolePermissions */}
                             <p className="text-green-600 text-xs mt-1">
                               {role._count?.rolePermissions ?? role.permissions?.length ?? 0} permissions
                             </p>
@@ -1296,7 +1162,6 @@ function AgentFormModal({ mode = "create", agent, onClose, onSuccess, showSucces
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex flex-col sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 border-t border-gray-100">
           {step === 1 ? (
             <>
@@ -1356,19 +1221,11 @@ function StepPill({ active, done, label }) {
 }
 
 /* ================= ASSIGN ROLE MODAL ================= */
-// ✅ CONFIRMÉ : POST /admin-agents/{id}/roles/bulk   body: { roleIds: string[] }
-// Reprend la mise en page de la maquette "Assigner des rôles" : recherche +
-// liste de rôles à cocher (sélection multiple), sans le bouton "Créer un
-// nouveau rôle" (action rapide depuis le tableau, la création de rôle reste
-// gérée dans l'onglet "Rôles"). Les rôles déjà assignés à l'agent sont
-// pré-cochés à l'ouverture ; "Enregistrer" envoie la liste complète des
-// roleIds sélectionnés (ajouts et retraits inclus) en un seul appel.
 function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [search, setSearch] = useState("")
 
-  // Debounce léger de la recherche, cohérent avec la section Rôles
   const [debouncedSearch, setDebouncedSearch] = useState("")
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350)
@@ -1380,7 +1237,6 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
     isActive: true,
   })
 
-  // Rôles déjà assignés à l'agent : pré-cochés à l'ouverture de la modale
   const currentRoleIds = (agent.user?.userRoles || [])
     .map((ur) => ur.role?.id)
     .filter(Boolean)
@@ -1425,7 +1281,6 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-3 sm:px-4 py-6 sm:py-8">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-start justify-between px-4 sm:px-6 pt-5 sm:pt-6 pb-4 gap-3">
           <div className="min-w-0">
             <h2 className="text-lg sm:text-xl font-semibold">Assigner des rôles</h2>
@@ -1444,7 +1299,6 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
           </div>
         )}
 
-        {/* Recherche */}
         <div className="px-4 sm:px-6 pb-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1458,7 +1312,6 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
           </div>
         </div>
 
-        {/* Liste des rôles */}
         <div className="px-4 sm:px-6 py-2 overflow-y-auto space-y-3 flex-1">
           {rolesLoading ? (
             <p className="text-center text-gray-400 text-sm py-8">Chargement des rôles...</p>
@@ -1501,7 +1354,6 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex flex-col sm:flex-row justify-end gap-3 px-4 sm:px-6 py-4 border-t border-gray-100">
           <button
             onClick={onClose}
@@ -1525,19 +1377,15 @@ function AssignRoleModal({ agent, onClose, onSuccess, showSuccess, showError }) 
 
 /* ================= ROLES SECTION ================= */
 function RolesSection() {
-  // Navigation vers la page de détail dédiée : /detail_role/:id
   const navigate = useNavigate()
+  const { can } = useAuth()
 
   const { notif, showSuccess, showError, dismiss } = useNotification()
-  // Même hook de confirmation que la section Agents : garantit un rendu et
-  // un comportement identiques (modale stylée) pour "Désactiver" et
-  // "Supprimer" côté rôles.
   const { confirmState, ask, close, handleConfirm } = useConfirm()
 
   const [search, setSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState("tous") // "tous" | "actif" | "inactif"
+  const [statusFilter, setStatusFilter] = useState("tous")
 
-  // Debounce léger de la recherche pour éviter un appel API à chaque frappe
   const [debouncedSearch, setDebouncedSearch] = useState("")
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350)
@@ -1564,15 +1412,9 @@ function RolesSection() {
   const [showEdit, setShowEdit] = useState(false)
   const [editRole, setEditRole] = useState(null)
 
-  // ================= PAGINATION (côté client) =================
-  // L'endpoint /roles/all-roles-except-main-roles renvoie la liste complète
-  // (pas de pagination côté serveur) : on pagine donc côté client, avec le
-  // même composant Pagination que la section Agents.
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
 
-  // Revenir à la première page à chaque nouvelle recherche ou changement de
-  // filtre de statut, pour ne pas rester bloqué sur une page vide.
   useEffect(() => {
     setPage(1)
   }, [debouncedSearch, isActiveParam])
@@ -1580,8 +1422,6 @@ function RolesSection() {
   const totalRoles = roles.length
   const totalPages = Math.max(1, Math.ceil(totalRoles / limit))
 
-  // Si la page courante devient hors limites (ex: suppression du dernier
-  // rôle d'une page), on se recale sur la dernière page valide.
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
@@ -1592,9 +1432,6 @@ function RolesSection() {
     addRole(newRole)
     setShowCreate(false)
     showSuccess("Rôle créé avec succès")
-    // On revient chercher la liste depuis le serveur pour être sûr que
-    // les compteurs (permissions, utilisateurs...) soient bien ceux
-    // renvoyés par l'API, pas seulement l'objet local qu'on vient d'ajouter.
     refetch()
   }
 
@@ -1603,18 +1440,10 @@ function RolesSection() {
     setShowEdit(true)
   }
 
-  // Le clic sur "Détail" redirige désormais vers la page dédiée
-  // /detail_role/:id (route déclarée dans le routeur de l'app), en passant
-  // l'id du rôle dans l'URL. On transmet aussi le rôle déjà chargé via
-  // l'état de navigation (location.state.role) pour un affichage immédiat
-  // côté Detail_role sans attendre un éventuel appel réseau supplémentaire.
   const handleDetails = (role) => {
     navigate(`/detail_role/${role.id}`, { state: { role } })
   }
 
-  // ✅ CONFIRMÉ : activation / désactivation via les endpoints dédiés
-  // POST /roles/{id}/activate   -> { success, message, data }
-  // POST /roles/{id}/deactivate -> { success, message, data }
   const handleToggleStatus = (role) => {
     const nextStatus = !role.isActive
 
@@ -1636,12 +1465,6 @@ function RolesSection() {
             }
           )
 
-          console.log("TOGGLE ROLE STATUS RESPONSE:", response.data)
-
-          // IMPORTANT : certaines API renvoient un HTTP 200 même quand
-          // l'action a échoué côté métier, avec { success: false } dans le
-          // corps. On vérifie donc explicitement ce champ avant d'afficher
-          // une notification de succès.
           if (response.data?.success === false) {
             throw new Error(response.data?.message || "Le changement de statut a échoué")
           }
@@ -1651,9 +1474,6 @@ function RolesSection() {
               (nextStatus ? "Rôle activé avec succès" : "Rôle désactivé avec succès")
           )
 
-          // On ne se contente jamais d'un patch local : on revient
-          // interroger le serveur via refetch() pour garantir que
-          // l'affichage reflète toujours l'état réel côté backend.
           await refetch()
         } catch (err) {
           console.error("TOGGLE ROLE STATUS ERROR:", err.response || err)
@@ -1667,8 +1487,6 @@ function RolesSection() {
     )
   }
 
-  // ✅ CONFIRMÉ : suppression d'un rôle
-  // DELETE /roles/{id} -> { success, message, data }
   const handleDelete = (role) => {
     ask(
       "Cette action est irréversible.",
@@ -1681,21 +1499,11 @@ function RolesSection() {
             },
           })
 
-          console.log("DELETE ROLE RESPONSE:", response.data)
-
-          // Même vérification explicite que pour le toggle de statut : un
-          // 200 avec { success: false } ne veut pas dire que la
-          // suppression a eu lieu.
           if (response.data?.success === false) {
             throw new Error(response.data?.message || "La suppression a échoué")
           }
 
           showSuccess(response.data?.message || "Rôle supprimé avec succès")
-
-          // Refetch() plutôt qu'un simple retrait local de la liste, pour
-          // confirmer auprès du serveur que la suppression a bien eu lieu
-          // et que la liste affichée est toujours la source de vérité
-          // serveur.
           await refetch()
         } catch (err) {
           console.error("DELETE ROLE ERROR:", err.response || err)
@@ -1714,12 +1522,9 @@ function RolesSection() {
 
   return (
     <>
-      {/* ================= NOTIFICATION ================= */}
       {notif && <NotificationBanner notif={notif} onDismiss={dismiss} />}
 
-      {/* ================= TABLE CARD ================= */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
           <div>
             <h2 className="text-base sm:text-lg font-semibold">Liste des Rôles</h2>
@@ -1729,16 +1534,17 @@ function RolesSection() {
               </p>
             )}
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm shrink-0"
-          >
-            <Plus size={18} />
-            Nouveau rôle
-          </button>
+          {can("ROLE_CREATE") && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-[#1EA4DC] text-white px-4 py-2 rounded-lg text-sm shrink-0"
+            >
+              <Plus size={18} />
+              Nouveau rôle
+            </button>
+          )}
         </div>
 
-        {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1762,8 +1568,6 @@ function RolesSection() {
           </select>
         </div>
 
-        {/* Table — même style que Produits.jsx : conteneur arrondi,
-            lignes alternées gris clair / blanc, survol bleu clair. */}
         {loading ? (
           <p className="text-center text-gray-500 py-8">Chargement...</p>
         ) : error ? (
@@ -1807,7 +1611,6 @@ function RolesSection() {
           </div>
         )}
 
-        {/* Pagination */}
         {!loading && !error && (
           <Pagination
             page={page}
@@ -1819,11 +1622,6 @@ function RolesSection() {
         )}
       </div>
 
-      {/* ================= MODALS ================= */}
-      {/* La modale de détail d'un rôle a été retirée : "Détail" navigue
-          maintenant vers la page /detail_role/:id (voir handleDetails
-          ci-dessus). Seuls les modals de création et de modification
-          restent des modales in-page. */}
       {showCreate && (
         <CreateRoleModal
           onClose={() => setShowCreate(false)}
@@ -1845,50 +1643,43 @@ function RolesSection() {
         />
       )}
 
-      {/* ================= CONFIRMATION (désactiver / supprimer) ================= */}
       <ConfirmDialog state={confirmState} onCancel={close} onConfirm={handleConfirm} />
     </>
   )
 }
 
 /* ================= ROLE ROW ================= */
-/* Même style que ProductsTable de Produits.jsx : lignes alternées gris
-   clair / blanc (rowIndex pair/impair) avec survol bleu clair. */
 function RoleRow({ rowIndex, role, onDetails, onEdit, onToggleStatus, onDelete }) {
-  //  CONFIRMÉ : l'API renvoie _count.rolePermissions (et non _count.permissions)
+  const { can } = useAuth()
   const permissionsCount = role._count?.rolePermissions ?? role.permissions?.length ?? 0
   const usersCount = role._count?.userRoles ?? role.usersCount ?? 0
 
-  // Menu d'actions basé sur ActionMenu (portal), même correctif que
-  // pour AgentRow.
   const menuItems = [
-    {
+    can("ROLE_READ") && {
       icon: <Eye size={17} className="text-gray-500" />,
       label: "Détail",
       onClick: () => onDetails(role),
     },
-    {
+    can("ROLE_UPDATE") && {
       icon: <Pencil size={17} className="text-gray-500" />,
       label: "Modifier",
       onClick: () => onEdit(role),
     },
-    {
-      // Icône distincte selon le sens de l'action, cohérente avec celle
-      // utilisée pour les agents.
+    can("ROLE_UPDATE") && {
       icon: role.isActive ? <PowerOff size={17} /> : <Power size={17} />,
       label: role.isActive ? "Désactiver" : "Activer",
       onClick: () => onToggleStatus(role),
       className: role.isActive ? "text-orange-500" : "text-green-600",
       dividerBefore: true,
     },
-    {
+    can("ROLE_DELETE") && {
       icon: <Trash2 size={17} />,
       label: "Supprimer",
       onClick: () => onDelete(role),
       className: "text-red-600",
       dividerBefore: true,
     },
-  ]
+  ].filter(Boolean)
 
   return (
     <tr className={`${rowIndex % 2 ? "bg-gray-50" : "bg-white"} hover:bg-blue-50 transition-colors`}>
@@ -1965,8 +1756,6 @@ function CreateRoleModal({ onClose, onCreated, showError }) {
       setError("")
 
       const token = getToken()
-
-      // Le nom technique : espaces remplacés par des underscores
       const formattedName = form.name.trim().replace(/\s+/g, "_")
 
       const response = await axios.post(
@@ -2000,7 +1789,6 @@ function CreateRoleModal({ onClose, onCreated, showError }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center px-3 sm:px-4">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-start justify-between px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-gray-100 gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#1EA4DC] to-blue-700 flex items-center justify-center shrink-0">
@@ -2015,7 +1803,6 @@ function CreateRoleModal({ onClose, onCreated, showError }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="px-4 sm:px-6 py-5 space-y-4 text-sm">
           {error && (
             <div className="bg-red-100 text-red-700 p-3 rounded-lg text-sm">
@@ -2061,7 +1848,6 @@ function CreateRoleModal({ onClose, onCreated, showError }) {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex flex-col sm:flex-row justify-end gap-3 px-4 sm:px-6 pb-5 sm:pb-6">
           <button
             onClick={onClose}
@@ -2084,8 +1870,6 @@ function CreateRoleModal({ onClose, onCreated, showError }) {
 }
 
 /* ================= EDIT ROLE MODAL ================= */
-// Utilise le même formulaire que la création (nom technique + libellé + description)
-// PUT /roles/{id}  body: { name, description, libelle, isActive }
 function EditRoleModal({ role, onClose, onSuccess, showSuccess, showError }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -2115,7 +1899,6 @@ function EditRoleModal({ role, onClose, onSuccess, showSuccess, showError }) {
       setLoading(true)
       setError("")
 
-      // Le nom technique : espaces remplacés par des underscores (comme à la création)
       const formattedName = form.name.trim().replace(/\s+/g, "_")
 
       const response = await axios.put(

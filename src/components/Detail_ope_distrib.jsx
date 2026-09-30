@@ -31,7 +31,7 @@ import axios from "axios"
 
 /* ===================== HELPERS ===================== */
 
-const API_BASE = "https://youapi.youneed.app/pollux/dev/api"
+const API_BASE = "https://youapi.youneed.app/pollux/prod/api"
 
 function getToken() {
   return (

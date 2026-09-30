@@ -24,7 +24,7 @@ import { getAuthData } from "./auth"
 ═══════════════════════════════════════════════ */
 
 const DIST_COMMISSIONS_API = (distributorId) =>
-  `https://youapi.youneed.app/pollux/dev/api/commissions/distributors/${distributorId}/history`
+  `https://youapi.youneed.app/pollux/prod/api/commissions/distributors/${distributorId}/history`
 
 /* ═══════════════════════════════════════════════
   MAPPINGS (libellés / couleurs)
